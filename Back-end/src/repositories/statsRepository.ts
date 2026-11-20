@@ -52,6 +52,7 @@ export class StatsRepository {
   >;
   private readonly stmtGetDailyStats: Database.Statement<[string, string], DailyStatsRow>;
   private readonly stmtCountCyclesBySession: Database.Statement<[string], { count: number }>;
+  private readonly stmtAdjustTasksCompleted: Database.Statement<[string, string, string, number, number, number]>;
 
   constructor(private readonly db: AppDatabase) {
     this.stmtInsertCycle = this.db.prepare(
@@ -77,6 +78,15 @@ export class StatsRepository {
     );
     this.stmtCountCyclesBySession = this.db.prepare(
       'SELECT COUNT(*) AS count FROM cycles WHERE session_id = ?'
+    );
+    this.stmtAdjustTasksCompleted = this.db.prepare(
+      `INSERT INTO daily_stats (
+         id, user_id, date, sessions_completed, focus_ms,
+         tasks_completed, primordial_completed, primordial_ignored, updated_at
+       ) VALUES (?, ?, ?, 0, 0, ?, 0, 0, ?)
+       ON CONFLICT(user_id, date) DO UPDATE SET
+         tasks_completed = MAX(0, daily_stats.tasks_completed + ?),
+         updated_at = excluded.updated_at`
     );
   }
 
@@ -138,5 +148,18 @@ export class StatsRepository {
   getDailyStats(userId: string, date: string): DailyStats | null {
     const row = this.stmtGetDailyStats.get(userId, date);
     return row ? mapDailyStats(row) : null;
+  }
+
+  adjustTasksCompleted(userId: string, delta: 1 | -1, nowMs: number = Date.now()): void {
+    const dateStr = new Date(nowMs).toISOString().slice(0, 10);
+    const initialValue = delta > 0 ? delta : 0;
+    this.stmtAdjustTasksCompleted.run(
+      crypto.randomUUID(),
+      userId,
+      dateStr,
+      initialValue,
+      nowMs,
+      delta
+    );
   }
 }

@@ -111,4 +111,16 @@ CREATE TABLE IF NOT EXISTS event_logs (
 
 CREATE INDEX IF NOT EXISTS idx_event_logs_user_time ON event_logs(user_id, server_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_event_logs_entity ON event_logs(entity_type, entity_id);
+
+CREATE TABLE IF NOT EXISTS search_history (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  engine TEXT NOT NULL,
+  query TEXT NOT NULL,
+  results_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_history_user_time ON search_history(user_id, created_at DESC);
 `;

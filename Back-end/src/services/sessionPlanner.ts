@@ -17,30 +17,38 @@ export interface BuildPlanInput {
   totalCycles: number;
   startedAt: number;
   cyclesBeforeLongBreak?: number;
+  shortBreakMin?: number;
+  longBreakMin?: number;
 }
 
 /**
- * Computes break type and duration according to roadmap Phase 2 rules:
- * - 25-40 min focus -> 5 min short break (also 5 min for <25 min)
- * - >40 min focus -> 10 min short break
- * - Every 4th cycle -> 20 min long break
+ * Computes break type and duration according to roadmap Phase 2 rules and user preferences:
+ * - Every `cyclesBeforeLongBreak` cycles -> `longBreakMin` (default 20 min)
+ * - Custom `shortBreakMin` (anything other than default 5 min) overrides automatic short break
+ * - Otherwise: <=40 min focus -> 5 min short break; >40 min focus -> 10 min short break
  */
 export function resolveBreakForCycle(
   focusDurationMin: number,
   cycleNumber: number,
-  cyclesBeforeLongBreak: number = SESSION_LIMITS.CYCLES_BEFORE_LONG_BREAK
+  cyclesBeforeLongBreak: number = SESSION_LIMITS.CYCLES_BEFORE_LONG_BREAK,
+  shortBreakMin?: number,
+  longBreakMin?: number
 ): { phaseType: Extract<PhaseType, 'short_break' | 'long_break'>; durationMin: number } {
   if (cycleNumber % cyclesBeforeLongBreak === 0) {
     return {
       phaseType: 'long_break',
-      durationMin: SESSION_LIMITS.LONG_BREAK_MIN,
+      durationMin: longBreakMin ?? SESSION_LIMITS.LONG_BREAK_MIN,
     };
   }
 
-  const durationMin =
-    focusDurationMin > SESSION_LIMITS.EXTENDED_FOCUS_THRESHOLD_MIN
+  const hasCustomShortBreak =
+    shortBreakMin !== undefined && shortBreakMin !== SESSION_LIMITS.SHORT_BREAK_STANDARD_MIN;
+
+  const durationMin = hasCustomShortBreak
+    ? shortBreakMin
+    : focusDurationMin > SESSION_LIMITS.EXTENDED_FOCUS_THRESHOLD_MIN
       ? SESSION_LIMITS.SHORT_BREAK_EXTENDED_MIN
-      : SESSION_LIMITS.SHORT_BREAK_STANDARD_MIN;
+      : (shortBreakMin ?? SESSION_LIMITS.SHORT_BREAK_STANDARD_MIN);
 
   return {
     phaseType: 'short_break',
@@ -58,6 +66,8 @@ export function buildSessionPlan(input: BuildPlanInput): SessionPlanPhase[] {
     totalCycles,
     startedAt,
     cyclesBeforeLongBreak = SESSION_LIMITS.CYCLES_BEFORE_LONG_BREAK,
+    shortBreakMin,
+    longBreakMin,
   } = input;
 
   const phases: SessionPlanPhase[] = [];
@@ -80,7 +90,9 @@ export function buildSessionPlan(input: BuildPlanInput): SessionPlanPhase[] {
     const breakSpec = resolveBreakForCycle(
       focusDurationMin,
       cycleNumber,
-      cyclesBeforeLongBreak
+      cyclesBeforeLongBreak,
+      shortBreakMin,
+      longBreakMin
     );
     const breakDurationMs = breakSpec.durationMin * 60_000;
     phases.push({
