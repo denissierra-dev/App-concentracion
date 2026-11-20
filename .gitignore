@@ -8,3 +8,5 @@ data/
 coverage/
 package-lock.json
 .DS_Store
+Back-end/docs/
+BACKEND-API-CONTRACT.md

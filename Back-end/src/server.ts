@@ -5,6 +5,7 @@ import { createDatabase } from './db/database.js';
 const db = createDatabase(env.DATABASE_PATH);
 const app = createApp({
   db,
+  audioDir: env.AUDIO_DIR,
   corsOrigin: env.CORS_ORIGIN,
 });
 

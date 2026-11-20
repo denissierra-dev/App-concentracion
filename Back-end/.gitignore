@@ -7,3 +7,4 @@ data/
 .env
 coverage/
 package-lock.json
+docs/
