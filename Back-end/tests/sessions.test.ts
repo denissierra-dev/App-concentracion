@@ -512,4 +512,59 @@ describe('Fase 1 & 2: Sesiones, Plan Precomputado y Ciclos/Descansos', () => {
     expect(session.body.session.plan[0].durationMs).toBe(45 * 60_000);
     expect(session.body.session.plan[1].durationMs).toBe(10 * 60_000);
   });
+
+  it('POST /api/v1/sessions applies shortBreakMin and longBreakMin from user preferences', async () => {
+    const app = createApp({ db });
+
+    const prefRes = await request(app)
+      .patch('/api/v1/preferences')
+      .set('x-device-id', deviceId)
+      .send({
+        focusDurationMin: 30,
+        shortBreakMin: 12,
+        longBreakMin: 35,
+        cyclesBeforeLongBreak: 2,
+      });
+    expect(prefRes.status).toBe(200);
+    expect(prefRes.body.preferences.shortBreakMin).toBe(12);
+    expect(prefRes.body.preferences.longBreakMin).toBe(35);
+
+    const session = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ totalCycles: 2 });
+    expect(session.status).toBe(201);
+
+    const summary = session.body.session.plan.map(
+      (p: { phaseType: string; durationMs: number }) => `${p.phaseType}:${p.durationMs / 60_000}m`
+    );
+    expect(summary).toEqual([
+      'focus:30m',
+      'short_break:12m',
+      'focus:30m',
+      'long_break:35m',
+    ]);
+
+    // Also applies custom shortBreakMin even when focusDurationMin > 40
+    const s2 = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ focusDurationMin: 50, totalCycles: 1 });
+    expect(s2.status).toBe(409); // active session exists
+
+    await request(app)
+      .post(`/api/v1/sessions/${session.body.session.id}/end`)
+      .set('x-device-id', deviceId)
+      .send({});
+
+    const s3 = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ focusDurationMin: 50, totalCycles: 1 });
+    expect(s3.status).toBe(201);
+    expect(s3.body.session.plan[1]).toMatchObject({
+      phaseType: 'short_break',
+      durationMs: 12 * 60_000,
+    });
+  });
 });

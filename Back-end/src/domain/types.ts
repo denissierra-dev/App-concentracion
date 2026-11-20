@@ -99,7 +99,36 @@ export interface DailyStats {
   updatedAt: number;
 }
 
-export type EventEntityType = 'user' | 'preference' | 'session' | 'cycle' | 'task';
+export type EventEntityType = 'user' | 'preference' | 'session' | 'cycle' | 'task' | 'search';
+
+export type SearchEngine = 'google' | 'wikipedia' | 'stackoverflow';
+
+export interface SearchResultMetadata {
+  pageId?: number;
+  questionId?: number;
+  score?: number;
+  answerCount?: number;
+  isAnswered?: boolean;
+  tags?: string[];
+}
+
+export interface SearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+  displayUrl: string | null;
+  engine: SearchEngine;
+  metadata?: SearchResultMetadata;
+}
+
+export interface SearchHistoryEntry {
+  id: string;
+  userId: string;
+  engine: SearchEngine;
+  query: string;
+  resultsCount: number;
+  createdAt: number;
+}
 
 export interface EventLog {
   id: string;

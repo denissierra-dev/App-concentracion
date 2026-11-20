@@ -9,10 +9,36 @@ const taskIdParamSchema = z.object({
   id: z.string().uuid(),
 });
 
+const manualPrioritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
+const effectivePriorityFilterSchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
+const taskTagsSchema = z.array(z.string().trim().min(1).max(32)).max(10);
+
+const listTasksQuerySchema = z.object({
+  status: z.enum(['all', 'pending', 'completed']).optional().default('all'),
+  priority: effectivePriorityFilterSchema.optional(),
+  tag: z.string().trim().min(1).max(32).optional(),
+  search: z.string().trim().min(1).max(100).optional(),
+  overdue: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
+  hasDueDate: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
+  sortBy: z
+    .enum(['default', 'priority', 'dueAt', 'createdAt', 'updatedAt'])
+    .optional()
+    .default('default'),
+  sortOrder: z.enum(['asc', 'desc']).optional(),
+});
+
 const createTaskSchema = z.object({
   id: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).nullable().optional(),
+  userPriority: manualPrioritySchema.optional(),
+  tags: taskTagsSchema.optional(),
   dueAt: z.number().int().positive().nullable().optional(),
   eventId: z.string().uuid().optional(),
   clientTimestamp: z.number().int().positive().optional(),
@@ -23,6 +49,8 @@ const updateTaskSchema = z
     title: z.string().trim().min(1).max(200).optional(),
     description: z.string().trim().max(2000).nullable().optional(),
     completed: z.boolean().optional(),
+    userPriority: manualPrioritySchema.optional(),
+    tags: taskTagsSchema.optional(),
     dueAt: z.number().int().positive().nullable().optional(),
     eventId: z.string().uuid().optional(),
     clientTimestamp: z.number().int().positive().optional(),
@@ -32,6 +60,8 @@ const updateTaskSchema = z
       data.title !== undefined ||
       data.description !== undefined ||
       data.completed !== undefined ||
+      data.userPriority !== undefined ||
+      data.tags !== undefined ||
       data.dueAt !== undefined,
     { message: 'At least one updatable task field must be provided' }
   );
@@ -67,17 +97,47 @@ export function createTasksRouter({
   const router = Router();
   router.use(authenticate);
 
+  /**
+   * Lists tasks with server-side filtering, search, and sorting.
+   */
   router.get('/', (req, res, next) => {
     try {
       const userId = getAuthenticatedUserId(req);
-      const tasks = taskRepo.listByUser(userId);
+      const query = listTasksQuerySchema.parse(req.query);
+      const nowMs = Date.now();
+
+      const tasks = taskRepo.listByUser(userId, {
+        status: query.status,
+        priority: query.priority,
+        tag: query.tag,
+        search: query.search,
+        overdue: query.overdue,
+        hasDueDate: query.hasDueDate,
+        sortBy: query.sortBy,
+        sortOrder: query.sortOrder,
+        nowMs,
+      });
       const counts = taskRepo.getCountsByUser(userId);
 
       res.json({
         tasks,
         counts,
-        serverTimeMs: Date.now(),
+        filteredCount: tasks.length,
+        serverTimeMs: nowMs,
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Lists distinct tags used by the authenticated user's tasks.
+   */
+  router.get('/tags', (req, res, next) => {
+    try {
+      const userId = getAuthenticatedUserId(req);
+      const tags = taskRepo.listTagsByUser(userId);
+      res.json({ tags, serverTimeMs: Date.now() });
     } catch (err) {
       next(err);
     }
@@ -109,6 +169,8 @@ export function createTasksRouter({
         id: body.id,
         title: body.title,
         description: body.description,
+        userPriority: body.userPriority,
+        tags: body.tags,
         dueAt: body.dueAt,
         eventId: body.eventId,
         clientTimestamp: body.clientTimestamp,
@@ -144,6 +206,8 @@ export function createTasksRouter({
         title: body.title,
         description: body.description,
         completed: body.completed,
+        userPriority: body.userPriority,
+        tags: body.tags,
         dueAt: body.dueAt,
         eventId: body.eventId,
         clientTimestamp: body.clientTimestamp,

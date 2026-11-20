@@ -1,0 +1,309 @@
+@import "tailwindcss";
+
+/* Semantic color tokens aligned with Paleta-colores.md (60-30-10 rule + AA/AAA contrast) */
+
+/* 1. Paleta Blanco y Negro (default light & Sistema light) */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f2f2f2;
+  --surface-elevated: #d9d9d9;
+  --border: #c8c8c8;
+  --primary: #333333;
+  --primary-hover: #000000;
+  --primary-text: #ffffff;
+  --text-main: #000000;
+  --text-body: #333333;
+  --text-muted: #5c5c5c;
+  --accent: #000000;
+  --accent-hover: #333333;
+  --accent-text: #ffffff;
+  --break-color: #4a4a4a;
+  --break-text: #ffffff;
+  --long-break-color: #000000;
+  --long-break-text: #ffffff;
+  --danger: #a4161a;
+  --danger-bg: #ffe5e5;
+  --danger-text: #ffffff;
+  --success: #2d6a4f;
+  --success-bg: #d8f3dc;
+}
+
+/* 2. Paleta Negro y Blanco (modo oscuro) */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0a0a0a;
+  --surface: #1b1b1b;
+  --surface-elevated: #2b2b2b;
+  --border: #3d3d3d;
+  --primary: #e8e8e8;
+  --primary-hover: #ffffff;
+  --primary-text: #0a0a0a;
+  --text-main: #ffffff;
+  --text-body: #e8e8e8;
+  --text-muted: #9e9e9e;
+  --accent: #ffffff;
+  --accent-hover: #d9d9d9;
+  --accent-text: #0a0a0a;
+  --break-color: #b8b8b8;
+  --break-text: #0a0a0a;
+  --long-break-color: #ffffff;
+  --long-break-text: #0a0a0a;
+  --danger: #ff8a7a;
+  --danger-bg: #3b1214;
+  --danger-text: #0a0a0a;
+  --success: #95d5b2;
+  --success-bg: #153124;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme='system'] {
+    color-scheme: dark;
+    --bg: #0a0a0a;
+    --surface: #1b1b1b;
+    --surface-elevated: #2b2b2b;
+    --border: #3d3d3d;
+    --primary: #e8e8e8;
+    --primary-hover: #ffffff;
+    --primary-text: #0a0a0a;
+    --text-main: #ffffff;
+    --text-body: #e8e8e8;
+    --text-muted: #9e9e9e;
+    --accent: #ffffff;
+    --accent-hover: #d9d9d9;
+    --accent-text: #0a0a0a;
+    --break-color: #b8b8b8;
+    --break-text: #0a0a0a;
+    --long-break-color: #ffffff;
+    --long-break-text: #0a0a0a;
+    --danger: #ff8a7a;
+    --danger-bg: #3b1214;
+    --danger-text: #0a0a0a;
+    --success: #95d5b2;
+    --success-bg: #153124;
+  }
+}
+
+/* 3. Paleta Azul (Base: Azul cobalto · Complementario: Naranja) */
+:root[data-theme='blue'] {
+  color-scheme: light;
+  --bg: #d6ecff;
+  --surface: #eef7ff;
+  --surface-elevated: #bde0fe;
+  --border: #5ba8e8;
+  --primary: #1e5fa8;
+  --primary-hover: #154780;
+  --primary-text: #ffffff;
+  --text-main: #0b2e5c;
+  --text-body: #0f3568;
+  --text-muted: #2d588a;
+  --accent: #ff9f1c;
+  --accent-hover: #e76f00;
+  --accent-text: #0a0a0a;
+  --break-color: #2d6a4f;
+  --break-text: #ffffff;
+  --long-break-color: #6a2c91;
+  --long-break-text: #ffffff;
+  --danger: #a4161a;
+  --danger-bg: #ffe5e5;
+  --danger-text: #ffffff;
+  --success: #2d6a4f;
+  --success-bg: #d8f3dc;
+}
+
+/* 4. Paleta Morado (Base: Púrpura real · Complementario: Amarillo) */
+:root[data-theme='purple'] {
+  color-scheme: light;
+  --bg: #e4d4f7;
+  --surface: #f4ecfd;
+  --surface-elevated: #d8bfef;
+  --border: #b57edc;
+  --primary: #6a2c91;
+  --primary-hover: #532073;
+  --primary-text: #ffffff;
+  --text-main: #3b1259;
+  --text-body: #3b1259;
+  --text-muted: #5f3a7a;
+  --accent: #f2e28b;
+  --accent-hover: #e6d05c;
+  --accent-text: #3b1259;
+  --break-color: #2d6a4f;
+  --break-text: #ffffff;
+  --long-break-color: #6a2c91;
+  --long-break-text: #ffffff;
+  --danger: #a4161a;
+  --danger-bg: #ffe5e5;
+  --danger-text: #ffffff;
+  --success: #2d6a4f;
+  --success-bg: #d8f3dc;
+}
+
+/* 5. Paleta Roja (Base: Rojo carmesí · Complementario: Verde) */
+:root[data-theme='red'] {
+  color-scheme: light;
+  --bg: #ff8a7a;
+  --surface: #fff2f0;
+  --surface-elevated: #ffc7bf;
+  --border: #e63946;
+  --primary: #a4161a;
+  --primary-hover: #801114;
+  --primary-text: #ffffff;
+  --text-main: #660708;
+  --text-body: #660708;
+  --text-muted: #781719;
+  --accent: #95d5b2;
+  --accent-hover: #74c69d;
+  --accent-text: #1b4332;
+  --break-color: #2d6a4f;
+  --break-text: #ffffff;
+  --long-break-color: #660708;
+  --long-break-text: #ffffff;
+  --danger: #660708;
+  --danger-bg: #ffe3e3;
+  --danger-text: #ffffff;
+  --success: #1b4332;
+  --success-bg: #d8f3dc;
+}
+
+/* 6. Paleta Naranja (Base: Naranja mandarina · Complementario: Azul) */
+:root[data-theme='orange'] {
+  color-scheme: light;
+  --bg: #ffd8a8;
+  --surface: #fff3e3;
+  --surface-elevated: #ffe3be;
+  --border: #ff9f1c;
+  --primary: #e76f00;
+  --primary-hover: #c95f00;
+  --primary-text: #1a0a00;
+  --text-main: #b34700;
+  --text-body: #8f3700;
+  --text-muted: #9e4000;
+  --accent: #5ba8e8;
+  --accent-hover: #3b8fd4;
+  --accent-text: #0b2e5c;
+  --break-color: #2d6a4f;
+  --break-text: #ffffff;
+  --long-break-color: #1e5fa8;
+  --long-break-text: #ffffff;
+  --danger: #a4161a;
+  --danger-bg: #ffe5e5;
+  --danger-text: #ffffff;
+  --success: #2d6a4f;
+  --success-bg: #d8f3dc;
+}
+
+/* 7. Paleta Verde (Base: Verde esmeralda · Complementario: Rojo) */
+:root[data-theme='green'] {
+  color-scheme: light;
+  --bg: #d8f3dc;
+  --surface: #f0faf2;
+  --surface-elevated: #bee9c8;
+  --border: #95d5b2;
+  --primary: #2d6a4f;
+  --primary-hover: #1b4332;
+  --primary-text: #ffffff;
+  --text-main: #1b4332;
+  --text-body: #1b4332;
+  --text-muted: #2d6a4f;
+  --accent: #e76f51;
+  --accent-hover: #d4573b;
+  --accent-text: #0a0a0a;
+  --break-color: #2d6a4f;
+  --break-text: #ffffff;
+  --long-break-color: #1b4332;
+  --long-break-text: #ffffff;
+  --danger: #a4161a;
+  --danger-bg: #ffe5e5;
+  --danger-text: #ffffff;
+  --success: #1b4332;
+  --success-bg: #bee9c8;
+}
+
+@theme inline {
+  --color-canvas: var(--bg);
+  --color-surface: var(--surface);
+  --color-elevated: var(--surface-elevated);
+  --color-edge: var(--border);
+  --color-brand: var(--primary);
+  --color-brand-hover: var(--primary-hover);
+  --color-brand-ink: var(--primary-text);
+  --color-heading: var(--text-main);
+  --color-ink: var(--text-body);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-text);
+  --color-break: var(--break-color);
+  --color-break-ink: var(--break-text);
+  --color-long-break: var(--long-break-color);
+  --color-long-break-ink: var(--long-break-text);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-ink: var(--danger-text);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+}
+
+/* Swatch preview chips (zero inline style attributes for strict CSP) */
+.theme-swatch-system {
+  background: linear-gradient(135deg, #ffffff 50%, #0a0a0a 50%);
+  border: 1px solid #8a8a8a;
+}
+.theme-swatch-light {
+  background: linear-gradient(135deg, #ffffff 55%, #000000 55%);
+  border: 1px solid #8a8a8a;
+}
+.theme-swatch-dark {
+  background: linear-gradient(135deg, #0a0a0a 55%, #ffffff 55%);
+  border: 1px solid #6e6e6e;
+}
+.theme-swatch-blue {
+  background: linear-gradient(135deg, #1e5fa8 60%, #ff9f1c 60%);
+  border: 1px solid #0b2e5c;
+}
+.theme-swatch-purple {
+  background: linear-gradient(135deg, #6a2c91 60%, #f2e28b 60%);
+  border: 1px solid #3b1259;
+}
+.theme-swatch-red {
+  background: linear-gradient(135deg, #e63946 60%, #95d5b2 60%);
+  border: 1px solid #660708;
+}
+.theme-swatch-orange {
+  background: linear-gradient(135deg, #ff9f1c 60%, #5ba8e8 60%);
+  border: 1px solid #b34700;
+}
+.theme-swatch-green {
+  background: linear-gradient(135deg, #2d6a4f 60%, #e76f51 60%);
+  border: 1px solid #1b4332;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: var(--bg);
+    color: var(--text-body);
+    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Remove unstyled browser-native spin boxes on number inputs */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+}

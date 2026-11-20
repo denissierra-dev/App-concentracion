@@ -59,6 +59,9 @@ const preferenceUpdateEventSchema = z.object({
   payload: preferencePatchSchema,
 });
 
+const manualPrioritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
+const taskTagsSchema = z.array(z.string().trim().min(1).max(32)).max(10);
+
 const taskCreateEventSchema = z.object({
   ...baseEventFields,
   entityType: z.literal('task'),
@@ -66,6 +69,8 @@ const taskCreateEventSchema = z.object({
   payload: z.object({
     title: z.string().trim().min(1).max(200),
     description: z.string().trim().max(2000).nullable().optional(),
+    userPriority: manualPrioritySchema.optional(),
+    tags: taskTagsSchema.optional(),
     dueAt: z.number().int().positive().nullable().optional(),
   }),
 });
@@ -79,6 +84,8 @@ const taskUpdateEventSchema = z.object({
       title: z.string().trim().min(1).max(200).optional(),
       description: z.string().trim().max(2000).nullable().optional(),
       completed: z.boolean().optional(),
+      userPriority: manualPrioritySchema.optional(),
+      tags: taskTagsSchema.optional(),
       dueAt: z.number().int().positive().nullable().optional(),
     })
     .refine(
@@ -86,6 +93,8 @@ const taskUpdateEventSchema = z.object({
         data.title !== undefined ||
         data.description !== undefined ||
         data.completed !== undefined ||
+        data.userPriority !== undefined ||
+        data.tags !== undefined ||
         data.dueAt !== undefined,
       { message: 'At least one updatable task field must be provided' }
     ),
@@ -321,6 +330,8 @@ export class SyncService {
           id: event.entityId,
           title: event.payload.title,
           description: event.payload.description,
+          userPriority: event.payload.userPriority,
+          tags: event.payload.tags,
           dueAt: event.payload.dueAt,
           eventId: event.eventId,
           clientTimestamp: event.clientTimestamp,
@@ -339,6 +350,8 @@ export class SyncService {
           title: event.payload.title,
           description: event.payload.description,
           completed: event.payload.completed,
+          userPriority: event.payload.userPriority,
+          tags: event.payload.tags,
           dueAt: event.payload.dueAt,
           eventId: event.eventId,
           clientTimestamp: event.clientTimestamp,

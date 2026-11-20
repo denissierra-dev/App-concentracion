@@ -10,3 +10,6 @@ package-lock.json
 .DS_Store
 Back-end/docs/
 BACKEND-API-CONTRACT.md
+ERRORES-BACKEND.md
+ERRORES-FRONTEND.md
+*.tsbuildinfo

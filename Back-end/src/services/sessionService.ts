@@ -26,6 +26,8 @@ export interface CreateSessionParams {
   userId: string;
   sessionId?: string;
   focusDurationMin?: number;
+  shortBreakMin?: number;
+  longBreakMin?: number;
   totalCycles?: number;
   eventId?: string;
   clientTimestamp?: number;
@@ -222,6 +224,8 @@ export class SessionService {
 
       const prefs = this.deps.userRepo.getPreferencesByUserId(params.userId);
       const focusDurationMin = params.focusDurationMin ?? prefs?.focusDurationMin ?? 25;
+      const shortBreakMin = params.shortBreakMin ?? prefs?.shortBreakMin;
+      const longBreakMin = params.longBreakMin ?? prefs?.longBreakMin;
       const cyclesBeforeLongBreak =
         prefs?.cyclesBeforeLongBreak ?? SESSION_LIMITS.CYCLES_BEFORE_LONG_BREAK;
 
@@ -231,6 +235,8 @@ export class SessionService {
         totalCycles,
         startedAt: nowMs,
         cyclesBeforeLongBreak,
+        shortBreakMin,
+        longBreakMin,
       });
 
       const session: Session = {

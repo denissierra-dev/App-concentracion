@@ -7,6 +7,12 @@ const app = createApp({
   db,
   audioDir: env.AUDIO_DIR,
   corsOrigin: env.CORS_ORIGIN,
+  searchConfig: {
+    googleApiKey: env.GOOGLE_CSE_API_KEY,
+    googleCx: env.GOOGLE_CSE_CX,
+    stackExchangeApiKey: env.STACKEXCHANGE_API_KEY,
+    timeoutMs: env.SEARCH_TIMEOUT_MS,
+  },
 });
 
 const server = app.listen(env.PORT, () => {

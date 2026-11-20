@@ -7,11 +7,13 @@ import type { PreferenceService } from '../../services/preferenceService.js';
 import type { PriorityRecalcQueue } from '../../services/priorityQueue.js';
 import type { SessionService } from '../../services/sessionService.js';
 import type { SyncService } from '../../services/syncService.js';
+import type { SearchService } from '../../services/searchService.js';
 import type { TaskService } from '../../services/taskService.js';
 import { createAuthRouter } from './auth.routes.js';
 import { createAudioRouter } from './audio.routes.js';
 import { createHealthRouter } from './health.routes.js';
 import { createPreferencesRouter } from './preferences.routes.js';
+import { createSearchRouter } from './search.routes.js';
 import { createSessionsRouter } from './sessions.routes.js';
 import { createSyncRouter } from './sync.routes.js';
 import { createTasksRouter } from './tasks.routes.js';
@@ -27,6 +29,7 @@ export interface V1RouterDeps {
   preferenceService: PreferenceService;
   taskService: TaskService;
   syncService: SyncService;
+  searchService: SearchService;
   priorityQueue: PriorityRecalcQueue;
   authenticate: RequestHandler;
 }
@@ -81,6 +84,13 @@ export function createV1Router(deps: V1RouterDeps): Router {
     '/sync',
     createSyncRouter({
       syncService: deps.syncService,
+      authenticate: deps.authenticate,
+    })
+  );
+  router.use(
+    '/search',
+    createSearchRouter({
+      searchService: deps.searchService,
       authenticate: deps.authenticate,
     })
   );

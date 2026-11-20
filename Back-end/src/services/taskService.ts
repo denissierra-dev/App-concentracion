@@ -1,10 +1,13 @@
 import crypto from 'node:crypto';
 import type { AppDatabase } from '../db/database.js';
-import type { Task } from '../domain/types.js';
+import type { PriorityLevel, Task } from '../domain/types.js';
 import { AppError } from '../errors/AppError.js';
 import type { EventLogRepository } from '../repositories/eventLogRepository.js';
 import type { StatsRepository } from '../repositories/statsRepository.js';
 import type { TaskRepository } from '../repositories/taskRepository.js';
+import { maxPriority } from './priorityService.js';
+
+export type ManualPriorityLevel = Extract<PriorityLevel, 'LOW' | 'MEDIUM' | 'HIGH'>;
 
 export interface TaskServiceDeps {
   db: AppDatabase;
@@ -18,6 +21,8 @@ export interface CreateTaskParams {
   id?: string;
   title: string;
   description?: string | null;
+  userPriority?: ManualPriorityLevel;
+  tags?: string[];
   dueAt?: number | null;
   eventId?: string;
   clientTimestamp?: number;
@@ -30,6 +35,8 @@ export interface UpdateTaskParams {
   title?: string;
   description?: string | null;
   completed?: boolean;
+  userPriority?: ManualPriorityLevel;
+  tags?: string[];
   dueAt?: number | null;
   eventId?: string;
   clientTimestamp?: number;
@@ -42,6 +49,29 @@ export interface DeleteTaskParams {
   eventId?: string;
   clientTimestamp?: number;
   nowMs?: number;
+}
+
+/**
+ * Trims and deduplicates tags case-insensitively while preserving first-seen casing.
+ */
+export function normalizeTags(tags?: string[]): string[] {
+  if (!tags || tags.length === 0) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const raw of tags) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(trimmed);
+  }
+
+  return normalized;
 }
 
 function checkIdempotentTaskEvent(
@@ -77,6 +107,8 @@ export class TaskService {
 
   createTask(params: CreateTaskParams): { created: boolean; task: Task } {
     const nowMs = params.nowMs ?? Date.now();
+    const userPriority = params.userPriority ?? 'LOW';
+    const tags = normalizeTags(params.tags);
 
     return this.deps.db.transaction(() => {
       const replayEntityId = checkIdempotentTaskEvent(this.deps.eventLogRepo, {
@@ -109,15 +141,15 @@ export class TaskService {
         description: params.description ?? null,
         completed: false,
         completedAt: null,
-        userPriority: 'LOW',
+        userPriority,
         aiPriority: null,
-        effectivePriority: 'LOW',
+        effectivePriority: userPriority,
         priorityScore: 0,
         priorityReason: null,
         priorityComputedAt: null,
         priorityDismissedUntil: null,
         priorityDismissCount: 0,
-        tags: [],
+        tags,
         dueAt: params.dueAt ?? null,
         createdAt: nowMs,
         updatedAt: nowMs,
@@ -132,6 +164,8 @@ export class TaskService {
         eventType: 'TASK_CREATED',
         payload: {
           title: task.title,
+          userPriority: task.userPriority,
+          tags: task.tags,
           dueAt: task.dueAt,
         },
         clientTimestamp: params.clientTimestamp ?? null,
@@ -173,6 +207,9 @@ export class TaskService {
       const nextCompleted = params.completed ?? existing.completed;
       const completedChanged = nextCompleted !== existing.completed;
       const dueAtChanged = params.dueAt !== undefined && params.dueAt !== existing.dueAt;
+      const nextUserPriority = params.userPriority ?? existing.userPriority;
+      const userPriorityChanged = nextUserPriority !== existing.userPriority;
+      const nextTags = params.tags !== undefined ? normalizeTags(params.tags) : existing.tags;
 
       let nextCompletedAt = existing.completedAt;
       if (completedChanged) {
@@ -186,6 +223,9 @@ export class TaskService {
         description: params.description !== undefined ? params.description : existing.description,
         completed: nextCompleted,
         completedAt: nextCompletedAt,
+        userPriority: nextUserPriority,
+        effectivePriority: maxPriority(nextUserPriority, existing.aiPriority),
+        tags: nextTags,
         dueAt: params.dueAt !== undefined ? params.dueAt : existing.dueAt,
         updatedAt: nowMs,
       };
@@ -203,6 +243,8 @@ export class TaskService {
         payload: {
           action,
           completed: updated.completed,
+          userPriority: updated.userPriority,
+          tags: updated.tags,
           dueAt: updated.dueAt,
         },
         clientTimestamp: params.clientTimestamp ?? null,
@@ -212,7 +254,7 @@ export class TaskService {
       return {
         idempotent: false,
         task: updated,
-        shouldRecalc: completedChanged || dueAtChanged,
+        shouldRecalc: completedChanged || dueAtChanged || userPriorityChanged,
       };
     })();
   }

@@ -237,4 +237,316 @@ describe('Fase 5: Sistema de Tareas (To-Do List)', () => {
       .send({});
     expect(emptyPatch.status).toBe(400);
   });
+
+  it('Fase 6.0: supports userPriority, normalized tags, server sorting, and GET /tasks/tags', async () => {
+    const app = createApp({ db, priorityQueue: new PriorityRecalcQueue() });
+    const now = Date.now();
+
+    const low = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Tarea baja',
+        userPriority: 'LOW',
+        tags: ['Casa', 'casa', '  Lectura  '],
+        dueAt: now + 10_000,
+      });
+    expect(low.status).toBe(201);
+    expect(low.body.task.userPriority).toBe('LOW');
+    expect(low.body.task.effectivePriority).toBe('LOW');
+    expect(low.body.task.tags).toEqual(['Casa', 'Lectura']);
+
+    const high = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Tarea alta',
+        userPriority: 'HIGH',
+        tags: ['Trabajo', 'Backend'],
+        dueAt: now + 50_000,
+      });
+    expect(high.status).toBe(201);
+    expect(high.body.task.effectivePriority).toBe('HIGH');
+
+    const med = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Tarea media',
+        userPriority: 'MEDIUM',
+        tags: ['Trabajo'],
+      });
+    expect(med.status).toBe(201);
+
+    // Default server ordering: pending first, then HIGH -> MEDIUM -> LOW
+    const defaultList = await request(app)
+      .get('/api/v1/tasks')
+      .set('x-device-id', deviceId);
+    expect(defaultList.status).toBe(200);
+    expect(defaultList.body.tasks.map((t: { title: string }) => t.title)).toEqual([
+      'Tarea alta',
+      'Tarea media',
+      'Tarea baja',
+    ]);
+
+    // Update priority and tags via PATCH
+    const promoted = await request(app)
+      .patch(`/api/v1/tasks/${low.body.task.id}`)
+      .set('x-device-id', deviceId)
+      .send({ userPriority: 'HIGH', tags: ['Urgente', 'Casa'] });
+    expect(promoted.status).toBe(200);
+    expect(promoted.body.task.userPriority).toBe('HIGH');
+    expect(promoted.body.task.effectivePriority).toBe('HIGH');
+    expect(promoted.body.task.tags).toEqual(['Urgente', 'Casa']);
+
+    // Sort by dueAt ascending (nulls last)
+    const byDueAsc = await request(app)
+      .get('/api/v1/tasks?sortBy=dueAt&sortOrder=asc')
+      .set('x-device-id', deviceId);
+    expect(byDueAsc.status).toBe(200);
+    expect(byDueAsc.body.tasks.map((t: { title: string }) => t.title)).toEqual([
+      'Tarea baja',
+      'Tarea alta',
+      'Tarea media',
+    ]);
+
+    // Distinct tags endpoint
+    const tagsRes = await request(app)
+      .get('/api/v1/tasks/tags')
+      .set('x-device-id', deviceId);
+    expect(tagsRes.status).toBe(200);
+    expect(tagsRes.body.tags).toEqual(['Backend', 'Casa', 'Trabajo', 'Urgente']);
+  });
+
+  it('Fase 6.0: filters by status, priority, tag, overdue, hasDueDate, and escaped search', async () => {
+    const app = createApp({ db, priorityQueue: new PriorityRecalcQueue() });
+    const now = Date.now();
+
+    const t1 = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Avance 100% SQLite',
+        description: 'Optimizar índices',
+        userPriority: 'HIGH',
+        tags: ['Backend'],
+        dueAt: now - 60_000, // overdue
+      });
+
+    await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Avance 50% UI',
+        description: 'Botones',
+        userPriority: 'MEDIUM',
+        tags: ['Frontend'],
+        dueAt: now + 3_600_000,
+      });
+
+    const t3 = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Sin fecha',
+        userPriority: 'LOW',
+        tags: ['Backend'],
+      });
+
+    await request(app)
+      .patch(`/api/v1/tasks/${t3.body.task.id}`)
+      .set('x-device-id', deviceId)
+      .send({ completed: true });
+
+    // Filter by tag (case-insensitive) + status=pending
+    const backendPending = await request(app)
+      .get('/api/v1/tasks?tag=backend&status=pending')
+      .set('x-device-id', deviceId);
+    expect(backendPending.status).toBe(200);
+    expect(backendPending.body.filteredCount).toBe(1);
+    expect(backendPending.body.counts).toEqual({ total: 3, pending: 2, completed: 1 });
+    expect(backendPending.body.tasks[0].id).toBe(t1.body.task.id);
+
+    // Filter by priority=MEDIUM
+    const mediumOnly = await request(app)
+      .get('/api/v1/tasks?priority=MEDIUM')
+      .set('x-device-id', deviceId);
+    expect(mediumOnly.body.tasks).toHaveLength(1);
+    expect(mediumOnly.body.tasks[0].title).toBe('Avance 50% UI');
+
+    // Filter by overdue=true
+    const overdueOnly = await request(app)
+      .get('/api/v1/tasks?overdue=true')
+      .set('x-device-id', deviceId);
+    expect(overdueOnly.body.tasks).toHaveLength(1);
+    expect(overdueOnly.body.tasks[0].id).toBe(t1.body.task.id);
+
+    // Filter by hasDueDate=false
+    const noDue = await request(app)
+      .get('/api/v1/tasks?hasDueDate=false')
+      .set('x-device-id', deviceId);
+    expect(noDue.body.tasks).toHaveLength(1);
+    expect(noDue.body.tasks[0].id).toBe(t3.body.task.id);
+
+    // Search with literal '%' must NOT match '50%'
+    const searchPercent = await request(app)
+      .get(`/api/v1/tasks?search=${encodeURIComponent('100%')}`)
+      .set('x-device-id', deviceId);
+    expect(searchPercent.status).toBe(200);
+    expect(searchPercent.body.tasks).toHaveLength(1);
+    expect(searchPercent.body.tasks[0].id).toBe(t1.body.task.id);
+
+    // Search matches description too
+    const searchDesc = await request(app)
+      .get(`/api/v1/tasks?search=${encodeURIComponent('índices')}`)
+      .set('x-device-id', deviceId);
+    expect(searchDesc.body.tasks).toHaveLength(1);
+    expect(searchDesc.body.tasks[0].id).toBe(t1.body.task.id);
+  });
+
+  it('Fase 6.5A: recalculates aiPriority, effectivePriority, priorityScore, priorityReason, and priorityComputedAt via default queue', async () => {
+    const app = createApp({ db });
+    const now = Date.now();
+
+    const criticalRes = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Entrega urgente',
+        userPriority: 'LOW',
+        dueAt: now + 2 * 3_600_000, // 2h -> CRITICAL
+      });
+    expect(criticalRes.status).toBe(201);
+
+    const highRes = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Entrega hoy',
+        userPriority: 'LOW',
+        dueAt: now + 12 * 3_600_000, // 12h -> HIGH
+      });
+    expect(highRes.status).toBe(201);
+
+    const mediumRes = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Entrega en 2 días',
+        userPriority: 'LOW',
+        dueAt: now + 48 * 3_600_000, // 48h -> MEDIUM
+      });
+    expect(mediumRes.status).toBe(201);
+
+    // Wait microtask flush for PriorityRecalcQueue
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const getCritical = await request(app)
+      .get(`/api/v1/tasks/${criticalRes.body.task.id}`)
+      .set('x-device-id', deviceId);
+    expect(getCritical.status).toBe(200);
+    expect(getCritical.body.task.aiPriority).toBe('CRITICAL');
+    expect(getCritical.body.task.effectivePriority).toBe('CRITICAL');
+    expect(getCritical.body.task.priorityScore).toBeGreaterThanOrEqual(90);
+    expect(getCritical.body.task.priorityReason).toEqual(expect.any(String));
+    expect(getCritical.body.task.priorityComputedAt).toEqual(expect.any(Number));
+
+    const getHigh = await request(app)
+      .get(`/api/v1/tasks/${highRes.body.task.id}`)
+      .set('x-device-id', deviceId);
+    expect(getHigh.body.task.aiPriority).toBe('HIGH');
+    expect(getHigh.body.task.effectivePriority).toBe('HIGH');
+    expect(getHigh.body.task.priorityScore).toBeGreaterThanOrEqual(70);
+
+    const getMedium = await request(app)
+      .get(`/api/v1/tasks/${mediumRes.body.task.id}`)
+      .set('x-device-id', deviceId);
+    expect(getMedium.body.task.aiPriority).toBe('MEDIUM');
+    expect(getMedium.body.task.effectivePriority).toBe('MEDIUM');
+
+    // Filter by CRITICAL works
+    const criticalFilter = await request(app)
+      .get('/api/v1/tasks?priority=CRITICAL')
+      .set('x-device-id', deviceId);
+    expect(criticalFilter.status).toBe(200);
+    expect(criticalFilter.body.tasks).toHaveLength(1);
+    expect(criticalFilter.body.tasks[0].id).toBe(criticalRes.body.task.id);
+
+    // Completing clears aiPriority and resets score to 0
+    await request(app)
+      .patch(`/api/v1/tasks/${criticalRes.body.task.id}`)
+      .set('x-device-id', deviceId)
+      .send({ completed: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const afterComplete = await request(app)
+      .get(`/api/v1/tasks/${criticalRes.body.task.id}`)
+      .set('x-device-id', deviceId);
+    expect(afterComplete.body.task.aiPriority).toBeNull();
+    expect(afterComplete.body.task.effectivePriority).toBe('LOW');
+    expect(afterComplete.body.task.priorityScore).toBe(0);
+    expect(afterComplete.body.task.priorityReason).toBeNull();
+  });
+
+  it('Fase 6.5A: TaskService.updateTask preserves max(userPriority, aiPriority) on non-priority edits', async () => {
+    const app = createApp({ db });
+    const now = Date.now();
+
+    const created = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Original',
+        userPriority: 'LOW',
+        dueAt: now + 2 * 3_600_000, // aiPriority -> CRITICAL
+      });
+    const taskId = created.body.task.id as string;
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Edit title & description only: effectivePriority must stay CRITICAL
+    const titlePatch = await request(app)
+      .patch(`/api/v1/tasks/${taskId}`)
+      .set('x-device-id', deviceId)
+      .send({ title: 'Editada', description: 'Nueva descripción' });
+    expect(titlePatch.status).toBe(200);
+    expect(titlePatch.body.task.userPriority).toBe('LOW');
+    expect(titlePatch.body.task.aiPriority).toBe('CRITICAL');
+    expect(titlePatch.body.task.effectivePriority).toBe('CRITICAL');
+
+    // Raise userPriority to HIGH while aiPriority is CRITICAL: effectivePriority stays CRITICAL
+    const highPatch = await request(app)
+      .patch(`/api/v1/tasks/${taskId}`)
+      .set('x-device-id', deviceId)
+      .send({ userPriority: 'HIGH' });
+    expect(highPatch.status).toBe(200);
+    expect(highPatch.body.task.userPriority).toBe('HIGH');
+    expect(highPatch.body.task.effectivePriority).toBe('CRITICAL');
+
+    // When dueAt is 48h (aiPriority MEDIUM), raising userPriority to HIGH yields HIGH,
+    // and lowering back to LOW keeps MEDIUM
+    const medCreated = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Media por fecha',
+        userPriority: 'LOW',
+        dueAt: now + 48 * 3_600_000,
+      });
+    const medId = medCreated.body.task.id as string;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const raised = await request(app)
+      .patch(`/api/v1/tasks/${medId}`)
+      .set('x-device-id', deviceId)
+      .send({ userPriority: 'HIGH' });
+    expect(raised.body.task.aiPriority).toBe('MEDIUM');
+    expect(raised.body.task.effectivePriority).toBe('HIGH');
+
+    const lowered = await request(app)
+      .patch(`/api/v1/tasks/${medId}`)
+      .set('x-device-id', deviceId)
+      .send({ userPriority: 'LOW' });
+    expect(lowered.body.task.effectivePriority).toBe('MEDIUM');
+  });
 });
