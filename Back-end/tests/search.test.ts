@@ -2,8 +2,10 @@ import crypto from 'node:crypto';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
+import { DeviceIdAuthProvider } from '../src/auth/DeviceIdAuthProvider.js';
 import { createDatabase, type AppDatabase } from '../src/db/database.js';
 import { EventLogRepository } from '../src/repositories/eventLogRepository.js';
+import { UserRepository } from '../src/repositories/userRepository.js';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -386,5 +388,123 @@ describe('Fase 7: Mini Buscador (/api/v1/search)', () => {
       .get('/api/v1/search/history')
       .set('x-device-id', deviceId);
     expect(historyAfterFailures.body.total).toBe(0);
+  });
+
+  it('sanitizes Stack Overflow tags and Google displayLink, aborts slow-drip bodies and incremental chunk overflows, and runs authenticate once with rateLimit enabled', async () => {
+    // 1. Stack Overflow tags + Google displayLink sanitization
+    const sanitizeFetch = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'api.stackexchange.com') {
+        return jsonResponse({
+          items: [
+            {
+              question_id: 777,
+              title: 'Clean SO Question',
+              link: 'https://stackoverflow.com/questions/777/clean',
+              score: 10,
+              answer_count: 2,
+              is_answered: true,
+              tags: [
+                '<b>sqlite</b>',
+                '&lt;script&gt;evil&lt;/script&gt;\u202Ewal',
+                '<script></script>',
+              ],
+            },
+          ],
+        });
+      }
+      return jsonResponse({
+        items: [
+          {
+            title: 'Google Item',
+            link: 'https://example.com/item',
+            displayLink: '<b>example.com</b>\u202E&lt;img src=x onerror=alert(1)&gt;',
+            snippet: 'Clean snippet',
+          },
+        ],
+      });
+    });
+
+    const baseProvider = new DeviceIdAuthProvider(new UserRepository(db));
+    const authSpy = vi.spyOn(baseProvider, 'authenticate');
+
+    const app = createApp({
+      db,
+      authProvider: baseProvider,
+      enableRateLimit: true,
+      searchConfig: { googleApiKey: 'g-key', googleCx: 'g-cx' },
+      searchFetchImpl: sanitizeFetch,
+    });
+
+    const soRes = await request(app)
+      .get('/api/v1/search')
+      .query({ engine: 'stackoverflow', q: 'sqlite' })
+      .set('x-device-id', deviceId);
+    expect(soRes.status).toBe(200);
+    // Issue #15: authenticate middleware must execute only ONCE per request even with enableRateLimit: true
+    expect(authSpy).toHaveBeenCalledTimes(1);
+    expect(soRes.body.results[0].metadata.tags).toEqual(['sqlite', 'evilwal']);
+    expect(soRes.body.results[0].snippet).toBe('Tags: sqlite, evilwal · Score: 10 · Answers: 2');
+
+    const gRes = await request(app)
+      .get('/api/v1/search')
+      .query({ engine: 'google', q: 'deep work' })
+      .set('x-device-id', deviceId);
+    expect(gRes.status).toBe(200);
+    expect(authSpy).toHaveBeenCalledTimes(2);
+    expect(gRes.body.results[0].displayUrl).toBe('example.com');
+
+    // 2. Slow-drip body after 200 OK headers must time out with 504 SEARCH_UPSTREAM_TIMEOUT
+    const slowBodyFetch = vi.fn<typeof fetch>(async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"query":'));
+          // Never closes
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    const slowApp = createApp({
+      db,
+      searchConfig: { timeoutMs: 30 },
+      searchFetchImpl: slowBodyFetch,
+    });
+    const slowRes = await request(slowApp)
+      .get('/api/v1/search')
+      .query({ engine: 'wikipedia', q: 'drip' })
+      .set('x-device-id', deviceId);
+    expect(slowRes.status).toBe(504);
+    expect(slowRes.body.error.code).toBe('SEARCH_UPSTREAM_TIMEOUT');
+
+    // 3. Chunked response without Content-Length stops pulling immediately upon exceeding 2MB
+    let chunksPulled = 0;
+    const chunkedOverflowFetch = vi.fn<typeof fetch>(async () => {
+      const chunk = new Uint8Array(256 * 1024).fill(0x61); // 256 KB per chunk (9 chunks > 2 MB)
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          chunksPulled++;
+          if (chunksPulled > 20) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(chunk);
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    const overflowApp = createApp({ db, searchFetchImpl: chunkedOverflowFetch });
+    const overflowRes = await request(overflowApp)
+      .get('/api/v1/search')
+      .query({ engine: 'wikipedia', q: 'overflow' })
+      .set('x-device-id', deviceId);
+    expect(overflowRes.status).toBe(502);
+    expect(overflowRes.body.error.code).toBe('SEARCH_UPSTREAM_ERROR');
+    expect(chunksPulled).toBeLessThanOrEqual(10);
   });
 });

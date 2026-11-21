@@ -15,12 +15,18 @@ const QUEUE_PREFIX = 'queue:';
 
 const queueListSchema = z.array(queuedSyncEventSchema).max(200);
 
-function openIdb(): Promise<IDBDatabase | null> {
+let dbPromise: Promise<IDBDatabase | null> | null = null;
+
+function getIdb(): Promise<IDBDatabase | null> {
   if (typeof window === 'undefined' || !('indexedDB' in window)) {
     return Promise.resolve(null);
   }
 
-  return new Promise((resolve) => {
+  if (dbPromise) {
+    return dbPromise;
+  }
+
+  dbPromise = new Promise((resolve) => {
     try {
       const request = window.indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = () => {
@@ -29,12 +35,32 @@ function openIdb(): Promise<IDBDatabase | null> {
           db.createObjectStore(STORE_NAME);
         }
       };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
+      request.onsuccess = () => {
+        const db = request.result;
+        db.onversionchange = () => {
+          db.close();
+          dbPromise = null;
+        };
+        db.onclose = () => {
+          dbPromise = null;
+        };
+        resolve(db);
+      };
+      request.onerror = () => {
+        dbPromise = null;
+        resolve(null);
+      };
+      request.onblocked = () => {
+        dbPromise = null;
+        resolve(null);
+      };
     } catch {
+      dbPromise = null;
       resolve(null);
     }
   });
+
+  return dbPromise;
 }
 
 async function withIdbStore<T>(
@@ -47,7 +73,7 @@ async function withIdbStore<T>(
   ) => void,
   defaultResult: T
 ): Promise<T> {
-  const db = await openIdb();
+  const db = await getIdb();
   if (!db) {
     return onUnavailable();
   }
@@ -64,18 +90,9 @@ async function withIdbStore<T>(
 
     try {
       const tx = db.transaction(STORE_NAME, mode);
-      tx.oncomplete = () => {
-        db.close();
-        finish(result);
-      };
-      tx.onerror = () => {
-        db.close();
-        finish(defaultResult);
-      };
-      tx.onabort = () => {
-        db.close();
-        finish(defaultResult);
-      };
+      tx.oncomplete = () => finish(result);
+      tx.onerror = () => finish(defaultResult);
+      tx.onabort = () => finish(defaultResult);
 
       const store = tx.objectStore(STORE_NAME);
       run(
@@ -86,8 +103,9 @@ async function withIdbStore<T>(
         defaultResult
       );
     } catch {
-      db.close();
-      finish(defaultResult);
+      // Connection may have been closed externally; reset singleton and fallback
+      dbPromise = null;
+      finish(onUnavailable());
     }
   });
 }
@@ -147,6 +165,16 @@ async function idbDelete(key: string): Promise<void> {
 }
 
 export const syncStore = {
+  async closeConnection(): Promise<void> {
+    if (!dbPromise) {
+      return;
+    }
+    const pending = dbPromise;
+    dbPromise = null;
+    const db = await pending;
+    db?.close();
+  },
+
   async loadSnapshot(deviceId: string): Promise<CachedSnapshot | null> {
     const validId = uuidSchema.safeParse(deviceId);
     if (!validId.success) {

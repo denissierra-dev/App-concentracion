@@ -133,17 +133,42 @@ export function getPhaseLabel(phaseType: PhaseType): string {
 
 export function previewBreakRules(
   focusDurationMin: number,
-  cyclesBeforeLongBreak: number = SESSION_LIMITS.CYCLES_BEFORE_LONG_BREAK
-): { shortBreakMin: number; longBreakMin: number; cyclesBeforeLongBreak: number } {
-  const shortBreakMin =
-    focusDurationMin > SESSION_LIMITS.EXTENDED_FOCUS_THRESHOLD_MIN
+  cyclesBeforeLongBreak: number = SESSION_LIMITS.CYCLES_BEFORE_LONG_BREAK,
+  customShortBreakMin?: number,
+  customLongBreakMin?: number
+): {
+  shortBreakMin: number;
+  longBreakMin: number;
+  cyclesBeforeLongBreak: number;
+  isCustomShortBreak: boolean;
+} {
+  const isCustomShortBreak =
+    customShortBreakMin !== undefined &&
+    Number.isInteger(customShortBreakMin) &&
+    customShortBreakMin >= 1 &&
+    customShortBreakMin !== SESSION_LIMITS.SHORT_BREAK_STANDARD_MIN;
+
+  const shortBreakMin = isCustomShortBreak
+    ? customShortBreakMin
+    : focusDurationMin > SESSION_LIMITS.EXTENDED_FOCUS_THRESHOLD_MIN
       ? SESSION_LIMITS.SHORT_BREAK_EXTENDED_MIN
-      : SESSION_LIMITS.SHORT_BREAK_STANDARD_MIN;
+      : (customShortBreakMin ?? SESSION_LIMITS.SHORT_BREAK_STANDARD_MIN);
+
+  const baseLongBreakMin =
+    customLongBreakMin !== undefined &&
+    Number.isInteger(customLongBreakMin) &&
+    customLongBreakMin >= SESSION_LIMITS.MIN_LONG_BREAK_MIN &&
+    customLongBreakMin <= SESSION_LIMITS.MAX_LONG_BREAK_MIN
+      ? customLongBreakMin
+      : SESSION_LIMITS.LONG_BREAK_MIN;
+
+  const longBreakMin = Math.max(baseLongBreakMin, 2 * shortBreakMin);
 
   return {
     shortBreakMin,
-    longBreakMin: SESSION_LIMITS.LONG_BREAK_MIN,
+    longBreakMin,
     cyclesBeforeLongBreak,
+    isCustomShortBreak,
   };
 }
 

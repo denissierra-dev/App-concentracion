@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { memo, useState, type FormEvent } from 'react';
 import type {
   SearchEngine,
   SearchEngineInfo,
@@ -13,6 +13,7 @@ interface MiniSearchPanelProps {
   lastResponse: SearchResponse | null;
   isSearching: boolean;
   searchError: string | null;
+  embedded?: boolean;
   onSearch: (input: {
     q: string;
     engine: SearchEngine;
@@ -32,12 +33,13 @@ const DEFAULT_ENGINES: SearchEngineInfo[] = [
 
 const WIKI_LANGS = ['es', 'en', 'pt', 'fr', 'de'] as const;
 
-export function MiniSearchPanel({
+export const MiniSearchPanel = memo(function MiniSearchPanel({
   engines,
   history,
   lastResponse,
   isSearching,
   searchError,
+  embedded = false,
   onSearch,
   onDeleteHistoryEntry,
   onClearHistory,
@@ -75,21 +77,22 @@ export function MiniSearchPanel({
 
   const displayError = validationError ?? searchError;
 
-  return (
-    <section
-      className="rounded-2xl border border-edge bg-surface p-6 shadow-sm"
-      aria-labelledby="search-heading"
-    >
+  const content = (
+    <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 id="search-heading" className="text-base font-bold text-heading">
-            Mini buscador de enfoque
-          </h2>
-          <p className="text-xs text-muted">Proxy seguro sin salir de tu sesión</p>
-        </div>
+        {!embedded ? (
+          <div>
+            <h2 id="search-heading" className="text-base font-bold text-heading">
+              Buscador de enfoque
+            </h2>
+            <p className="text-xs text-muted">Consulta rápida sin salir de tu sesión</p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted">Consulta rápida sin abrir pestañas distractoras</p>
+        )}
         <button
           type="button"
-          className="cursor-pointer rounded-lg border border-edge bg-elevated px-2.5 py-1 text-xs font-semibold text-ink hover:border-brand"
+          className="liquid-pill cursor-pointer rounded-full px-3 py-1 text-xs font-semibold text-heading"
           onClick={() => setShowHistory((v) => !v)}
         >
           {showHistory ? 'Ver resultados' : `Historial (${history.length})`}
@@ -107,10 +110,10 @@ export function MiniSearchPanel({
                 setEngine(item.id);
                 setValidationError(null);
               }}
-              className={`cursor-pointer rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+              className={`min-h-9 cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold transition ${
                 active
                   ? 'border-brand bg-brand text-brand-ink'
-                  : 'border-edge bg-canvas text-ink hover:border-brand'
+                  : 'liquid-glass-subtle text-ink hover:border-brand'
               }`}
             >
               {item.name}
@@ -124,7 +127,7 @@ export function MiniSearchPanel({
             aria-label="Idioma de Wikipedia"
             value={lang}
             onChange={(e) => setLang(e.target.value)}
-            className="ml-auto rounded-lg border border-edge bg-canvas px-2 py-1 text-xs text-heading"
+            className="liquid-glass-subtle ml-auto min-h-9 rounded-full px-3 py-1 text-xs font-semibold text-heading"
           >
             {WIKI_LANGS.map((code) => (
               <option key={code} value={code}>
@@ -149,11 +152,11 @@ export function MiniSearchPanel({
             setValidationError(null);
           }}
           placeholder="Buscar concepto, documentación o error..."
-          className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-heading placeholder:text-muted"
+          className="liquid-glass-subtle min-h-10 flex-1 rounded-2xl px-3.5 py-2 text-xs text-heading placeholder:text-muted"
         />
         <button
           type="submit"
-          className="cursor-pointer rounded-lg bg-accent px-3.5 py-2 text-xs font-bold text-accent-ink transition hover:bg-accent-hover disabled:opacity-55"
+          className="min-h-10 cursor-pointer rounded-2xl bg-accent px-4 py-2 text-xs font-bold text-accent-ink transition hover:bg-accent-hover active:scale-[0.98] disabled:opacity-55"
           disabled={isSearching}
         >
           {isSearching ? 'Buscando...' : 'Buscar'}
@@ -162,7 +165,7 @@ export function MiniSearchPanel({
 
       {displayError && (
         <p
-          className="mb-3 rounded-xl border border-danger bg-danger-bg px-3.5 py-2 text-xs font-medium text-danger"
+          className="mb-3 rounded-2xl border border-danger bg-danger-bg px-3.5 py-2 text-xs font-medium text-danger"
           role="alert"
         >
           {displayError}
@@ -176,7 +179,7 @@ export function MiniSearchPanel({
             {history.length > 0 && (
               <button
                 type="button"
-                className="cursor-pointer rounded-lg px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger-bg"
+                className="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold text-danger hover:bg-danger-bg"
                 onClick={() => void onClearHistory()}
               >
                 Limpiar todo
@@ -185,7 +188,7 @@ export function MiniSearchPanel({
           </div>
 
           {history.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-edge bg-canvas px-3 py-5 text-center text-xs text-muted">
+            <p className="liquid-glass-subtle rounded-2xl border-dashed px-3 py-5 text-center text-xs text-muted">
               Aún no hay búsquedas en el historial.
             </p>
           ) : (
@@ -193,7 +196,7 @@ export function MiniSearchPanel({
               {history.map((entry) => (
                 <li
                   key={entry.id}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-canvas px-3 py-2 text-xs"
+                  className="liquid-glass-subtle flex items-center justify-between gap-2 rounded-2xl px-3.5 py-2 text-xs"
                 >
                   <button
                     type="button"
@@ -205,7 +208,7 @@ export function MiniSearchPanel({
                       void submitQuery(entry.query, entry.engine, lang);
                     }}
                   >
-                    <span className="mr-1.5 rounded bg-elevated px-1.5 py-0.5 text-[10px] uppercase text-muted">
+                    <span className="mr-1.5 rounded-full bg-elevated px-2 py-0.5 text-[10px] uppercase text-muted">
                       {entry.engine}
                     </span>
                     {entry.query}
@@ -213,7 +216,7 @@ export function MiniSearchPanel({
                   <span className="shrink-0 text-[11px] text-muted">{entry.resultsCount} res.</span>
                   <button
                     type="button"
-                    className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-danger hover:bg-danger-bg"
+                    className="shrink-0 cursor-pointer rounded-full px-2 py-0.5 text-[11px] text-danger hover:bg-danger-bg"
                     onClick={() => void onDeleteHistoryEntry(entry.id)}
                     aria-label={`Eliminar "${entry.query}" del historial`}
                   >
@@ -227,7 +230,7 @@ export function MiniSearchPanel({
       ) : lastResponse ? (
         <div className="flex flex-col gap-2.5">
           {lastResponse.notice && (
-            <div className="rounded-xl border border-edge bg-canvas p-3 text-xs text-ink">
+            <div className="liquid-glass-subtle rounded-2xl p-3.5 text-xs text-ink">
               <p>{lastResponse.notice}</p>
               <a
                 href={lastResponse.externalUrl}
@@ -241,7 +244,7 @@ export function MiniSearchPanel({
           )}
 
           {lastResponse.results.length === 0 && !lastResponse.notice ? (
-            <p className="rounded-xl border border-dashed border-edge bg-canvas px-3 py-5 text-center text-xs text-muted">
+            <p className="liquid-glass-subtle rounded-2xl border-dashed px-3 py-5 text-center text-xs text-muted">
               Sin resultados para «{lastResponse.query}».
             </p>
           ) : (
@@ -249,7 +252,7 @@ export function MiniSearchPanel({
               {lastResponse.results.map((item) => (
                 <li
                   key={item.url}
-                  className="rounded-xl border border-edge bg-canvas p-3 text-xs transition hover:border-brand"
+                  className="liquid-glass-subtle rounded-2xl p-3.5 text-xs transition hover:border-brand"
                 >
                   <a
                     href={item.url}
@@ -266,22 +269,22 @@ export function MiniSearchPanel({
                   {item.metadata && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] text-muted">
                       {item.metadata.score !== undefined && (
-                        <span className="rounded bg-elevated px-1.5 py-0.5">
+                        <span className="rounded-full bg-elevated px-2 py-0.5">
                           Score: {item.metadata.score}
                         </span>
                       )}
                       {item.metadata.answerCount !== undefined && (
-                        <span className="rounded bg-elevated px-1.5 py-0.5">
+                        <span className="rounded-full bg-elevated px-2 py-0.5">
                           Respuestas: {item.metadata.answerCount}
                         </span>
                       )}
                       {item.metadata.isAnswered && (
-                        <span className="rounded bg-success-bg px-1.5 py-0.5 font-semibold text-success">
+                        <span className="rounded-full bg-success-bg px-2 py-0.5 font-semibold text-success">
                           Resuelta
                         </span>
                       )}
                       {item.metadata.tags?.slice(0, 4).map((tag) => (
-                        <span key={tag} className="rounded bg-elevated px-1.5 py-0.5">
+                        <span key={tag} className="rounded-full bg-elevated px-2 py-0.5">
                           {tag}
                         </span>
                       ))}
@@ -297,6 +300,19 @@ export function MiniSearchPanel({
           Consulta Wikipedia o Stack Overflow sin abrir pestañas distractoras.
         </p>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div aria-label="Buscador de enfoque">{content}</div>;
+  }
+
+  return (
+    <section
+      className="liquid-glass rounded-3xl p-6"
+      aria-labelledby="search-heading"
+    >
+      {content}
     </section>
   );
-}
+});

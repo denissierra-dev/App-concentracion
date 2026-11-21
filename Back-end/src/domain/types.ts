@@ -1,11 +1,31 @@
-export type AuthProviderType = 'device';
+export type AuthProviderType = 'device' | 'password' | 'google';
 
 export interface User {
   id: string;
   authProvider: AuthProviderType;
   externalId: string;
+  username: string | null;
+  email: string | null;
+  emailVerified: boolean;
+  displayName: string | null;
+  avatarUrl: string | null;
+  googleSub: string | null;
+  hasPassword: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface AuthSession {
+  id: string;
+  userId: string;
+  provider: Exclude<AuthProviderType, 'device'>;
+  persistent: boolean;
+  deviceLabel: string | null;
+  userAgent: string | null;
+  createdAt: number;
+  lastUsedAt: number;
+  expiresAt: number;
+  revokedAt: number | null;
 }
 
 export type ThemePreference = 'light' | 'dark' | 'system';
@@ -32,6 +52,7 @@ export interface SessionPlanPhase {
   durationMs: number;
   startsAt: number;
   endsAt: number;
+  skipped?: boolean;
 }
 
 export type SessionStatus = 'active' | 'paused' | 'completed' | 'reset';

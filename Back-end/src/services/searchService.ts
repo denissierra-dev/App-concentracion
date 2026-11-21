@@ -4,6 +4,8 @@ import type { SearchEngine, SearchHistoryEntry, SearchResultItem } from '../doma
 import { AppError } from '../errors/AppError.js';
 import type { EventLogRepository } from '../repositories/eventLogRepository.js';
 import type { SearchHistoryRepository } from '../repositories/searchHistoryRepository.js';
+import { isAbortError, readBoundedResponseJson } from '../security/boundedFetch.js';
+import { CONTROL_AND_BIDI_REPLACE_REGEX } from '../security/validators.js';
 
 export interface SearchConfig {
   googleApiKey?: string;
@@ -50,6 +52,8 @@ export interface ExecuteSearchResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 8000;
+const MAX_UPSTREAM_RESPONSE_BYTES = 2 * 1024 * 1024;
+const VALID_LANG_REGEX = /^[a-z]{2}(-[a-z]{2})?$/i;
 
 const NAMED_HTML_ENTITIES: Record<string, string> = {
   amp: '&',
@@ -60,9 +64,26 @@ const NAMED_HTML_ENTITIES: Record<string, string> = {
   nbsp: ' ',
 };
 
+function isSafeDecodedCodePoint(codePoint: number): boolean {
+  if (!Number.isFinite(codePoint) || codePoint <= 0 || codePoint > 0x10ffff) {
+    return false;
+  }
+  // Block C0, DEL, C1 control chars, UTF-16 surrogates, and Unicode bidi override chars
+  if (
+    codePoint < 0x20 ||
+    (codePoint >= 0x7f && codePoint <= 0x9f) ||
+    (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+    (codePoint >= 0x202a && codePoint <= 0x202e) ||
+    (codePoint >= 0x2066 && codePoint <= 0x2069)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 /**
- * Strips HTML tags and decodes common HTML entities so upstream snippets
- * can never inject markup into client views.
+ * Strips HTML tags, decodes common HTML entities, re-strips any newly formed tags,
+ * and removes control/bidi characters so upstream snippets can never inject markup.
  */
 function sanitizeText(raw: unknown): string {
   if (typeof raw !== 'string') {
@@ -76,21 +97,19 @@ function sanitizeText(raw: unknown): string {
     (match, entity: string) => {
       if (entity.startsWith('#x') || entity.startsWith('#X')) {
         const codePoint = Number.parseInt(entity.slice(2), 16);
-        return Number.isFinite(codePoint) && codePoint > 0 && codePoint <= 0x10ffff
-          ? String.fromCodePoint(codePoint)
-          : match;
+        return isSafeDecodedCodePoint(codePoint) ? String.fromCodePoint(codePoint) : '';
       }
       if (entity.startsWith('#')) {
         const codePoint = Number.parseInt(entity.slice(1), 10);
-        return Number.isFinite(codePoint) && codePoint > 0 && codePoint <= 0x10ffff
-          ? String.fromCodePoint(codePoint)
-          : match;
+        return isSafeDecodedCodePoint(codePoint) ? String.fromCodePoint(codePoint) : '';
       }
       return NAMED_HTML_ENTITIES[entity.toLowerCase()] ?? match;
     }
   );
 
-  return decoded.replace(/\s+/g, ' ').trim();
+  const withoutDecodedTags = decoded.replace(/<[^>]*>/g, '');
+  const withoutControlChars = withoutDecodedTags.replace(CONTROL_AND_BIDI_REPLACE_REGEX, '');
+  return withoutControlChars.replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -169,6 +188,9 @@ export class SearchService {
   }
 
   async search(params: ExecuteSearchParams): Promise<ExecuteSearchResult> {
+    if (!VALID_LANG_REGEX.test(params.lang)) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Invalid language code');
+    }
     const lang = params.lang.toLowerCase();
     const externalUrl = buildExternalSearchUrl(params.engine, params.query, lang);
 
@@ -328,42 +350,61 @@ export class SearchService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
-    let response: Response;
     try {
-      response = await this.fetchFn(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'DeepWorkApp/1.0 (https://localhost)',
-        },
-        signal: controller.signal,
-      });
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new AppError(504, 'SEARCH_UPSTREAM_TIMEOUT', 'Search provider timed out', {
+      let response: Response;
+      try {
+        response = await this.fetchFn(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'DeepWorkApp/1.0 (https://localhost)',
+          },
+          redirect: 'error',
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (isAbortError(err, controller.signal)) {
+          throw new AppError(504, 'SEARCH_UPSTREAM_TIMEOUT', 'Search provider timed out', {
+            engine,
+          });
+        }
+        throw new AppError(502, 'SEARCH_UPSTREAM_ERROR', 'Failed to reach search provider', {
           engine,
         });
       }
-      throw new AppError(502, 'SEARCH_UPSTREAM_ERROR', 'Failed to reach search provider', {
-        engine,
-      });
+
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => {});
+        throw new AppError(502, 'SEARCH_UPSTREAM_ERROR', 'Search provider returned an error', {
+          engine,
+          statusCode: response.status,
+        });
+      }
+
+      try {
+        return await readBoundedResponseJson(response, {
+          maxBytes: MAX_UPSTREAM_RESPONSE_BYTES,
+          signal: controller.signal,
+          onTooLarge: () =>
+            new AppError(502, 'SEARCH_UPSTREAM_ERROR', 'Search provider response too large', {
+              engine,
+            }),
+        });
+      } catch (err) {
+        if (err instanceof AppError) {
+          throw err;
+        }
+        if (isAbortError(err, controller.signal)) {
+          throw new AppError(504, 'SEARCH_UPSTREAM_TIMEOUT', 'Search provider timed out', {
+            engine,
+          });
+        }
+        throw new AppError(502, 'SEARCH_UPSTREAM_ERROR', 'Invalid response from search provider', {
+          engine,
+        });
+      }
     } finally {
       clearTimeout(timer);
-    }
-
-    if (!response.ok) {
-      throw new AppError(502, 'SEARCH_UPSTREAM_ERROR', 'Search provider returned an error', {
-        engine,
-        statusCode: response.status,
-      });
-    }
-
-    try {
-      return await response.json();
-    } catch {
-      throw new AppError(502, 'SEARCH_UPSTREAM_ERROR', 'Invalid response from search provider', {
-        engine,
-      });
     }
   }
 
@@ -435,7 +476,10 @@ export class SearchService {
       if (!title || !itemUrl) continue;
 
       const tags = Array.isArray(rawItem.tags)
-        ? rawItem.tags.filter((tag): tag is string => typeof tag === 'string')
+        ? rawItem.tags
+            .filter((tag): tag is string => typeof tag === 'string')
+            .map((tag) => sanitizeText(tag))
+            .filter((tag) => tag.length > 0)
         : [];
       const score = typeof rawItem.score === 'number' ? rawItem.score : 0;
       const answerCount = typeof rawItem.answer_count === 'number' ? rawItem.answer_count : 0;
@@ -496,10 +540,8 @@ export class SearchService {
       const itemUrl = sanitizeHttpUrl(rawItem.link);
       if (!title || !itemUrl) continue;
 
-      const displayUrl =
-        typeof rawItem.displayLink === 'string' && rawItem.displayLink.trim() !== ''
-          ? rawItem.displayLink.trim()
-          : null;
+      const sanitizedDisplayUrl = sanitizeText(rawItem.displayLink);
+      const displayUrl = sanitizedDisplayUrl !== '' ? sanitizedDisplayUrl : null;
 
       items.push({
         title,

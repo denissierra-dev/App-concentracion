@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { previewBreakRules } from '../domain/sessionClock';
 import { APP_THEMES, isAppTheme, toBackendTheme } from '../domain/themes';
 import type { AppTheme, Preference, ThemePreference } from '../domain/types';
+import { useModalEscape } from '../hooks/useModalEscape';
 import { SESSION_LIMITS, updatePreferencesInputSchema } from '../security/validators';
 
 interface PreferencesModalProps {
@@ -10,8 +11,11 @@ interface PreferencesModalProps {
   isSaving: boolean;
   onClose: () => void;
   onSelectTheme?: (theme: AppTheme) => void;
+  onOpenIdentity?: () => void;
   onSave: (patch: {
     focusDurationMin: number;
+    shortBreakMin: number;
+    longBreakMin: number;
     cyclesBeforeLongBreak: number;
     volumeFocus: number;
     volumeBreak: number;
@@ -27,10 +31,13 @@ export function PreferencesModal({
   isSaving,
   onClose,
   onSelectTheme,
+  onOpenIdentity,
   onSave,
   onRequestNotificationPermission,
 }: PreferencesModalProps) {
   const [focusDurationMin, setFocusDurationMin] = useState(String(preferences.focusDurationMin));
+  const [shortBreakMin, setShortBreakMin] = useState(String(preferences.shortBreakMin));
+  const [longBreakMin, setLongBreakMin] = useState(String(preferences.longBreakMin));
   const [cyclesBeforeLongBreak, setCyclesBeforeLongBreak] = useState(
     String(preferences.cyclesBeforeLongBreak)
   );
@@ -41,6 +48,8 @@ export function PreferencesModal({
   );
   const [theme, setTheme] = useState<AppTheme>(currentTheme ?? preferences.theme);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalEscape(dialogRef, onClose, isSaving);
 
   const parsedFocus = Number(focusDurationMin);
   const previewFocus =
@@ -49,6 +58,21 @@ export function PreferencesModal({
     parsedFocus <= SESSION_LIMITS.MAX_FOCUS_MIN
       ? parsedFocus
       : preferences.focusDurationMin;
+
+  const parsedShortBreak = Number(shortBreakMin);
+  const previewShortBreak =
+    Number.isInteger(parsedShortBreak) && parsedShortBreak >= 1 && parsedShortBreak <= 60
+      ? parsedShortBreak
+      : preferences.shortBreakMin;
+
+  const parsedLongBreak = Number(longBreakMin);
+  const previewLongBreak =
+    Number.isInteger(parsedLongBreak) &&
+    parsedLongBreak >= SESSION_LIMITS.MIN_LONG_BREAK_MIN &&
+    parsedLongBreak <= SESSION_LIMITS.MAX_LONG_BREAK_MIN
+      ? parsedLongBreak
+      : preferences.longBreakMin;
+
   const parsedCycles = Number(cyclesBeforeLongBreak);
   const previewCycles =
     Number.isInteger(parsedCycles) &&
@@ -57,7 +81,12 @@ export function PreferencesModal({
       ? parsedCycles
       : preferences.cyclesBeforeLongBreak;
 
-  const breakRules = previewBreakRules(previewFocus, previewCycles);
+  const breakRules = previewBreakRules(
+    previewFocus,
+    previewCycles,
+    previewShortBreak,
+    previewLongBreak
+  );
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -67,6 +96,8 @@ export function PreferencesModal({
 
     const parsed = updatePreferencesInputSchema.safeParse({
       focusDurationMin: Number(focusDurationMin),
+      shortBreakMin: Number(shortBreakMin),
+      longBreakMin: Number(longBreakMin),
       cyclesBeforeLongBreak: Number(cyclesBeforeLongBreak),
       volumeFocus: Number(volumeFocus),
       volumeBreak: Number(volumeBreak),
@@ -87,6 +118,8 @@ export function PreferencesModal({
 
     await onSave({
       focusDurationMin: parsed.data.focusDurationMin ?? preferences.focusDurationMin,
+      shortBreakMin: parsed.data.shortBreakMin ?? preferences.shortBreakMin,
+      longBreakMin: parsed.data.longBreakMin ?? preferences.longBreakMin,
       cyclesBeforeLongBreak:
         parsed.data.cyclesBeforeLongBreak ?? preferences.cyclesBeforeLongBreak,
       volumeFocus: parsed.data.volumeFocus ?? preferences.volumeFocus,
@@ -98,19 +131,25 @@ export function PreferencesModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      ref={dialogRef}
+      className="liquid-backdrop fixed inset-0 z-50 flex items-end justify-center p-2 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="prefs-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSaving) {
+          onClose();
+        }
+      }}
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-edge bg-surface p-6 shadow-xl">
+      <div className="liquid-glass-strong liquid-modal-panel max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-3xl p-5 sm:rounded-3xl sm:p-6">
         <div className="mb-5 flex items-center justify-between gap-3">
           <h2 id="prefs-title" className="text-lg font-bold text-heading">
-            Preferencias autoritativas
+            Preferencias
           </h2>
           <button
             type="button"
-            className="cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold text-ink hover:bg-elevated"
+            className="liquid-pill min-h-9 cursor-pointer rounded-full px-3.5 py-1.5 text-xs font-semibold text-heading"
             onClick={onClose}
           >
             Cerrar
@@ -148,13 +187,48 @@ export function PreferencesModal({
                 className="w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-heading"
               />
             </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="pref-short-break" className="text-xs font-semibold text-heading">
+                Descanso corto base (min)
+              </label>
+              <input
+                id="pref-short-break"
+                type="number"
+                min={1}
+                max={60}
+                value={shortBreakMin}
+                onChange={(e) => setShortBreakMin(e.target.value)}
+                className="w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-heading"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="pref-long-break" className="text-xs font-semibold text-heading">
+                Descanso largo (min)
+              </label>
+              <input
+                id="pref-long-break"
+                type="number"
+                min={SESSION_LIMITS.MIN_LONG_BREAK_MIN}
+                max={SESSION_LIMITS.MAX_LONG_BREAK_MIN}
+                value={longBreakMin}
+                onChange={(e) => setLongBreakMin(e.target.value)}
+                className="w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-heading"
+              />
+            </div>
           </div>
 
           <div className="rounded-xl border border-edge bg-canvas px-3.5 py-2.5 text-xs text-muted">
-            Descansos calculados por el servidor:{' '}
+            Vista previa:{' '}
             <strong className="text-heading">{breakRules.shortBreakMin} min</strong> corto ·{' '}
             <strong className="text-heading">{breakRules.longBreakMin} min</strong> largo cada{' '}
             {breakRules.cyclesBeforeLongBreak} ciclos.
+            {previewLongBreak < 2 * previewShortBreak && (
+              <span className="mt-1 block text-[11px]">
+                El descanso largo se ajusta automáticamente a mínimo 2× el descanso corto.
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -266,22 +340,39 @@ export function PreferencesModal({
             </p>
           )}
 
-          <div className="mt-2 flex justify-end gap-2.5">
-            <button
-              type="button"
-              className="cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold text-ink hover:bg-elevated disabled:opacity-55"
-              onClick={onClose}
-              disabled={isSaving}
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              className="cursor-pointer rounded-xl bg-accent px-4 py-2 text-sm font-bold text-accent-ink hover:bg-accent-hover disabled:opacity-55"
-              disabled={isSaving}
-            >
-              {isSaving ? 'Guardando...' : 'Guardar en servidor'}
-            </button>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2.5">
+            {onOpenIdentity ? (
+              <button
+                type="button"
+                className="liquid-pill min-h-10 cursor-pointer rounded-full px-3.5 py-2 text-xs font-semibold text-ink"
+                onClick={() => {
+                  onClose();
+                  onOpenIdentity();
+                }}
+                disabled={isSaving}
+              >
+                Cuenta y sesiones
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-2.5">
+              <button
+                type="button"
+                className="liquid-pill min-h-10 cursor-pointer rounded-full px-4 py-2 text-sm font-semibold text-ink disabled:opacity-55"
+                onClick={onClose}
+                disabled={isSaving}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="min-h-10 cursor-pointer rounded-full bg-accent px-5 py-2 text-sm font-bold text-accent-ink transition hover:bg-accent-hover active:scale-[0.98] disabled:opacity-55"
+                disabled={isSaving}
+              >
+                {isSaving ? 'Guardando...' : 'Guardar preferencias'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

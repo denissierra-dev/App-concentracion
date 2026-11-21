@@ -2,10 +2,15 @@ import type { z } from 'zod';
 import type {
   appThemeSchema,
   audioTrackSchema,
+  authProvidersResponseSchema,
+  authProviderTypeSchema,
+  authSessionEntrySchema,
+  authSuccessResponseSchema,
   cachedSnapshotSchema,
   phaseTypeSchema,
   preferenceSchema,
   priorityLevelSchema,
+  publicUserSchema,
   queuedSyncEventSchema,
   searchEngineInfoSchema,
   searchEngineSchema,
@@ -15,6 +20,8 @@ import type {
   sessionPlanPhaseSchema,
   sessionSchema,
   sessionStatusSchema,
+  statsDashboardResponseSchema,
+  statsExportFormatSchema,
   syncBatchResponseSchema,
   syncStateResponseSchema,
   taskCountsSchema,
@@ -27,6 +34,11 @@ import type {
 
 export type ThemePreference = z.infer<typeof themePreferenceSchema>;
 export type AppTheme = z.infer<typeof appThemeSchema>;
+export type AuthProviderType = z.infer<typeof authProviderTypeSchema>;
+export type PublicUser = z.infer<typeof publicUserSchema>;
+export type AuthProvidersResponse = z.infer<typeof authProvidersResponseSchema>;
+export type AuthSuccessResponse = z.infer<typeof authSuccessResponseSchema>;
+export type AuthSessionEntry = z.infer<typeof authSessionEntrySchema>;
 export type Preference = z.infer<typeof preferenceSchema>;
 export type PhaseType = z.infer<typeof phaseTypeSchema>;
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
@@ -48,3 +60,5 @@ export type SearchEngineInfo = z.infer<typeof searchEngineInfoSchema>;
 export type SearchResultItem = z.infer<typeof searchResultItemSchema>;
 export type SearchHistoryEntry = z.infer<typeof searchHistoryEntrySchema>;
 export type SearchResponse = z.infer<typeof searchResponseSchema>;
+export type StatsDashboardResponse = z.infer<typeof statsDashboardResponseSchema>;
+export type StatsExportFormat = z.infer<typeof statsExportFormatSchema>;

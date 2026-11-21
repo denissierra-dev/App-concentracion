@@ -13,16 +13,23 @@ export type PriorityRecalcHandler = (job: PriorityRecalcJob) => void | Promise<v
 export class PriorityRecalcQueue {
   private readonly pendingKeys = new Set<string>();
   private handler: PriorityRecalcHandler;
+  private hasHandler: boolean;
 
   constructor(handler?: PriorityRecalcHandler) {
+    this.hasHandler = handler !== undefined;
     this.handler = handler ?? (() => {});
   }
 
   setHandler(handler: PriorityRecalcHandler): void {
+    this.hasHandler = true;
     this.handler = handler;
   }
 
   enqueue(userId: string, taskId: string): boolean {
+    if (!this.hasHandler) {
+      return false;
+    }
+
     const key = `${userId}:${taskId}`;
     if (this.pendingKeys.has(key)) {
       return false;

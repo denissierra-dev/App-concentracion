@@ -139,12 +139,33 @@ export class TaskRepository {
     ]
   >;
   private readonly stmtUpdate: Database.Statement<
-    [string, string | null, number, number | null, string, string, string, number | null, number, string, string]
+    [
+      string,
+      string | null,
+      number,
+      number | null,
+      string,
+      string | null,
+      string,
+      number,
+      string | null,
+      number | null,
+      string,
+      number | null,
+      number,
+      string,
+      string,
+    ]
   >;
   private readonly stmtUpdatePriorityMetadata: Database.Statement<
     [string | null, string, number, string | null, number, string, string]
   >;
   private readonly stmtDeleteForUser: Database.Statement<[string, string]>;
+  private readonly filteredStmtCache = new Map<
+    string,
+    Database.Statement<Array<string | number>, TaskRow>
+  >();
+  private static readonly MAX_FILTERED_STMT_CACHE = 256;
 
   constructor(private readonly db: AppDatabase) {
     this.stmtExistsById = this.db.prepare('SELECT 1 AS found FROM tasks WHERE id = ? LIMIT 1');
@@ -193,7 +214,11 @@ export class TaskRepository {
            completed = ?,
            completed_at = ?,
            user_priority = ?,
+           ai_priority = ?,
            effective_priority = ?,
+           priority_score = ?,
+           priority_reason = ?,
+           priority_computed_at = ?,
            tags_json = ?,
            due_at = ?,
            updated_at = ?
@@ -288,7 +313,19 @@ export class TaskRepository {
                  WHERE ${conditions.join(' AND ')}
                  ORDER BY ${orderSql}`;
 
-    const rows = this.db.prepare(sql).all(...params) as TaskRow[];
+    let stmt = this.filteredStmtCache.get(sql);
+    if (!stmt) {
+      stmt = this.db.prepare(sql);
+      if (this.filteredStmtCache.size >= TaskRepository.MAX_FILTERED_STMT_CACHE) {
+        const oldestKey = this.filteredStmtCache.keys().next().value;
+        if (oldestKey !== undefined) {
+          this.filteredStmtCache.delete(oldestKey);
+        }
+      }
+      this.filteredStmtCache.set(sql, stmt);
+    }
+
+    const rows = stmt.all(...params);
     return rows.map(mapTask);
   }
 
@@ -337,7 +374,11 @@ export class TaskRepository {
       task.completed ? 1 : 0,
       task.completedAt,
       task.userPriority,
+      task.aiPriority,
       task.effectivePriority,
+      task.priorityScore,
+      task.priorityReason,
+      task.priorityComputedAt,
       JSON.stringify(task.tags),
       task.dueAt,
       task.updatedAt,

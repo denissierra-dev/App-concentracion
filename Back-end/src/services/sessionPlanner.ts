@@ -23,9 +23,9 @@ export interface BuildPlanInput {
 
 /**
  * Computes break type and duration according to roadmap Phase 2 rules and user preferences:
- * - Every `cyclesBeforeLongBreak` cycles -> `longBreakMin` (default 20 min)
  * - Custom `shortBreakMin` (anything other than default 5 min) overrides automatic short break
  * - Otherwise: <=40 min focus -> 5 min short break; >40 min focus -> 10 min short break
+ * - Every `cyclesBeforeLongBreak` cycles -> `long_break`, guaranteed to be at least 2x the resolved short break
  */
 export function resolveBreakForCycle(
   focusDurationMin: number,
@@ -34,25 +34,28 @@ export function resolveBreakForCycle(
   shortBreakMin?: number,
   longBreakMin?: number
 ): { phaseType: Extract<PhaseType, 'short_break' | 'long_break'>; durationMin: number } {
-  if (cycleNumber % cyclesBeforeLongBreak === 0) {
-    return {
-      phaseType: 'long_break',
-      durationMin: longBreakMin ?? SESSION_LIMITS.LONG_BREAK_MIN,
-    };
-  }
-
   const hasCustomShortBreak =
     shortBreakMin !== undefined && shortBreakMin !== SESSION_LIMITS.SHORT_BREAK_STANDARD_MIN;
 
-  const durationMin = hasCustomShortBreak
+  const resolvedShortBreakMin = hasCustomShortBreak
     ? shortBreakMin
     : focusDurationMin > SESSION_LIMITS.EXTENDED_FOCUS_THRESHOLD_MIN
       ? SESSION_LIMITS.SHORT_BREAK_EXTENDED_MIN
       : (shortBreakMin ?? SESSION_LIMITS.SHORT_BREAK_STANDARD_MIN);
 
+  if (cycleNumber % cyclesBeforeLongBreak === 0) {
+    const minLongBreakMin = resolvedShortBreakMin * 2;
+    const baseLongBreakMin =
+      longBreakMin ?? Math.max(SESSION_LIMITS.LONG_BREAK_MIN, minLongBreakMin);
+    return {
+      phaseType: 'long_break',
+      durationMin: Math.max(baseLongBreakMin, minLongBreakMin),
+    };
+  }
+
   return {
     phaseType: 'short_break',
-    durationMin,
+    durationMin: resolvedShortBreakMin,
   };
 }
 
@@ -139,15 +142,27 @@ export function shiftPlanFromIndex(
 
 /**
  * Re-anchors `fromIndex` and all subsequent phases to start sequentially from `anchorMs`.
+ * When `skippedIndex` is provided, marks that phase as `skipped: true` and clamps its `endsAt`
+ * so skipped phases are never credited as completed focus time.
  */
 export function reanchorPlanFromIndex(
   plan: SessionPlanPhase[],
   fromIndex: number,
-  anchorMs: number
+  anchorMs: number,
+  skippedIndex?: number,
+  skippedEndMs?: number
 ): SessionPlanPhase[] {
   let cursorMs = anchorMs;
+  const effectiveSkippedEnd = skippedEndMs ?? anchorMs;
   return plan.map((phase, idx) => {
     if (idx < fromIndex) {
+      if (skippedIndex !== undefined && idx === skippedIndex) {
+        return {
+          ...phase,
+          endsAt: Math.max(phase.startsAt, Math.min(phase.endsAt, effectiveSkippedEnd)),
+          skipped: true,
+        };
+      }
       return phase;
     }
     const updated: SessionPlanPhase = {

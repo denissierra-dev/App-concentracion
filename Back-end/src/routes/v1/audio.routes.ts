@@ -31,7 +31,11 @@ interface ByteRange {
 }
 
 function parseByteRange(rangeHeader: string, totalSize: number): ByteRange | 'invalid' {
-  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+  const trimmed = rangeHeader.trim();
+  if (trimmed.length > 128) {
+    return 'invalid';
+  }
+  const match = /^bytes=(\d*)-(\d*)$/.exec(trimmed);
   if (!match) {
     return 'invalid';
   }
@@ -130,42 +134,62 @@ export function createAudioRouter({
       const totalSize = track.sizeBytes;
       const rangeHeader = req.header('range');
 
+      let parsedRange: ByteRange | null = null;
+      if (rangeHeader !== undefined) {
+        const parsed = parseByteRange(rangeHeader, totalSize);
+        if (parsed === 'invalid') {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Content-Range', `bytes */${totalSize}`);
+          res.status(416).json({
+            error: {
+              code: 'RANGE_NOT_SATISFIABLE',
+              message: 'Requested byte range cannot be satisfied',
+            },
+          });
+          return;
+        }
+        parsedRange = parsed;
+      }
+
       res.setHeader('Content-Type', track.mimeType);
       res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Cache-Control', 'public, max-age=86400');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
-      if (!rangeHeader) {
+      let stream: fs.ReadStream;
+      if (!parsedRange) {
         res.status(200);
         res.setHeader('Content-Length', totalSize);
-        const stream = fs.createReadStream(filePath);
-        stream.on('error', next);
-        stream.pipe(res);
-        return;
-      }
-
-      const parsedRange = parseByteRange(rangeHeader, totalSize);
-      if (parsedRange === 'invalid') {
-        res.setHeader('Content-Range', `bytes */${totalSize}`);
-        res.status(416).json({
-          error: {
-            code: 'RANGE_NOT_SATISFIABLE',
-            message: 'Requested byte range cannot be satisfied',
-          },
+        stream = fs.createReadStream(filePath);
+      } else {
+        const chunkSize = parsedRange.end - parsedRange.start + 1;
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${parsedRange.start}-${parsedRange.end}/${totalSize}`);
+        res.setHeader('Content-Length', chunkSize);
+        stream = fs.createReadStream(filePath, {
+          start: parsedRange.start,
+          end: parsedRange.end,
         });
-        return;
       }
 
-      const chunkSize = parsedRange.end - parsedRange.start + 1;
-      res.status(206);
-      res.setHeader('Content-Range', `bytes ${parsedRange.start}-${parsedRange.end}/${totalSize}`);
-      res.setHeader('Content-Length', chunkSize);
+      const cleanupStream = (): void => {
+        if (!stream.destroyed) {
+          stream.destroy();
+        }
+      };
 
-      const stream = fs.createReadStream(filePath, {
-        start: parsedRange.start,
-        end: parsedRange.end,
+      res.on('close', () => {
+        if (!res.writableEnded) {
+          cleanupStream();
+        }
       });
-      stream.on('error', next);
+
+      stream.on('error', (err) => {
+        cleanupStream();
+        next(err);
+      });
+
       stream.pipe(res);
     } catch (err) {
       next(err);

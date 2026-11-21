@@ -5,15 +5,23 @@ import { AppError } from '../errors/AppError.js';
 import type { EventLogRepository } from '../repositories/eventLogRepository.js';
 import type { StatsRepository } from '../repositories/statsRepository.js';
 import type { TaskRepository } from '../repositories/taskRepository.js';
-import { maxPriority } from './priorityService.js';
+import {
+  DEFAULT_PRIORITY_RULES_CONFIG,
+  evaluateTaskPriority,
+  maxPriority,
+  type PriorityRulesConfig,
+} from './priorityService.js';
 
 export type ManualPriorityLevel = Extract<PriorityLevel, 'LOW' | 'MEDIUM' | 'HIGH'>;
+export const MAX_TASKS_PER_USER = 500;
 
 export interface TaskServiceDeps {
   db: AppDatabase;
   taskRepo: TaskRepository;
   statsRepo: StatsRepository;
   eventLogRepo: EventLogRepository;
+  priorityConfig?: Partial<PriorityRulesConfig>;
+  evaluatePriorityInline?: boolean;
 }
 
 export interface CreateTaskParams {
@@ -103,9 +111,20 @@ function checkIdempotentTaskEvent(
 }
 
 export class TaskService {
-  constructor(private readonly deps: TaskServiceDeps) {}
+  private readonly priorityConfig: PriorityRulesConfig;
+  private readonly evaluatePriorityInline: boolean;
 
-  createTask(params: CreateTaskParams): { created: boolean; task: Task } {
+  constructor(private readonly deps: TaskServiceDeps) {
+    this.priorityConfig = {
+      ...DEFAULT_PRIORITY_RULES_CONFIG,
+      ...deps.priorityConfig,
+    };
+    this.evaluatePriorityInline = deps.evaluatePriorityInline ?? true;
+  }
+
+  createTask(
+    params: CreateTaskParams
+  ): { created: true; task: Task } | { created: false; task: Task | null } {
     const nowMs = params.nowMs ?? Date.now();
     const userPriority = params.userPriority ?? 'LOW';
     const tags = normalizeTags(params.tags);
@@ -119,22 +138,30 @@ export class TaskService {
       });
       if (replayEntityId) {
         const replayedTask = this.deps.taskRepo.findByIdForUser(replayEntityId, params.userId);
-        if (replayedTask) {
-          return { created: false, task: replayedTask };
-        }
+        // Never resurrect a task that was already created by this eventId and later deleted.
+        return { created: false as const, task: replayedTask };
       }
 
       if (params.id) {
         const existing = this.deps.taskRepo.findByIdForUser(params.id, params.userId);
         if (existing) {
-          return { created: false, task: existing };
+          return { created: false as const, task: existing };
         }
         if (this.deps.taskRepo.existsById(params.id)) {
           throw new AppError(409, 'TASK_ID_CONFLICT', 'Task ID is already in use');
         }
       }
 
-      const task: Task = {
+      const currentCounts = this.deps.taskRepo.getCountsByUser(params.userId);
+      if (currentCounts.total >= MAX_TASKS_PER_USER) {
+        throw new AppError(
+          409,
+          'TASK_LIMIT_REACHED',
+          `Maximum of ${MAX_TASKS_PER_USER} tasks per device reached`
+        );
+      }
+
+      const baseTask: Task = {
         id: params.id ?? crypto.randomUUID(),
         userId: params.userId,
         title: params.title,
@@ -155,6 +182,13 @@ export class TaskService {
         updatedAt: nowMs,
       };
 
+      const task: Task = this.evaluatePriorityInline
+        ? {
+            ...baseTask,
+            ...evaluateTaskPriority(baseTask, nowMs, this.priorityConfig),
+          }
+        : baseTask;
+
       this.deps.taskRepo.create(task);
       this.deps.eventLogRepo.append({
         eventId: params.eventId,
@@ -172,7 +206,7 @@ export class TaskService {
         serverTimestamp: nowMs,
       });
 
-      return { created: true, task };
+      return { created: true as const, task };
     })();
   }
 
@@ -212,12 +246,43 @@ export class TaskService {
       const nextTags = params.tags !== undefined ? normalizeTags(params.tags) : existing.tags;
 
       let nextCompletedAt = existing.completedAt;
+      let primordialCompletedOnTime: boolean | undefined;
       if (completedChanged) {
-        nextCompletedAt = nextCompleted ? nowMs : null;
-        this.deps.statsRepo.adjustTasksCompleted(params.userId, nextCompleted ? 1 : -1, nowMs);
+        if (nextCompleted) {
+          nextCompletedAt = nowMs;
+          this.deps.statsRepo.adjustTasksCompleted(params.userId, 1, nowMs, nowMs);
+
+          const wasPrimordial =
+            existing.effectivePriority === 'HIGH' || existing.effectivePriority === 'CRITICAL';
+          const completedBeforeDeadline = existing.dueAt === null || nowMs <= existing.dueAt;
+          if (wasPrimordial && completedBeforeDeadline) {
+            primordialCompletedOnTime = true;
+            this.deps.statsRepo.adjustPrimordialCompleted(params.userId, 1, nowMs, nowMs);
+          }
+        } else {
+          const completedStatTimeMs = existing.completedAt ?? nowMs;
+          nextCompletedAt = null;
+          this.deps.statsRepo.adjustTasksCompleted(params.userId, -1, completedStatTimeMs, nowMs);
+
+          const lastCompletionEvent = this.deps.eventLogRepo.findLatestForEntityActionForUser(
+            params.userId,
+            'task',
+            existing.id,
+            'TASK_UPDATED',
+            'completed'
+          );
+          if (lastCompletionEvent?.payload.primordialCompletedOnTime === true) {
+            this.deps.statsRepo.adjustPrimordialCompleted(
+              params.userId,
+              -1,
+              completedStatTimeMs,
+              nowMs
+            );
+          }
+        }
       }
 
-      const updated: Task = {
+      const baseUpdated: Task = {
         ...existing,
         title: params.title ?? existing.title,
         description: params.description !== undefined ? params.description : existing.description,
@@ -229,6 +294,13 @@ export class TaskService {
         dueAt: params.dueAt !== undefined ? params.dueAt : existing.dueAt,
         updatedAt: nowMs,
       };
+
+      const updated: Task = this.evaluatePriorityInline
+        ? {
+            ...baseUpdated,
+            ...evaluateTaskPriority(baseUpdated, nowMs, this.priorityConfig),
+          }
+        : baseUpdated;
 
       this.deps.taskRepo.update(updated);
 
@@ -246,6 +318,7 @@ export class TaskService {
           userPriority: updated.userPriority,
           tags: updated.tags,
           dueAt: updated.dueAt,
+          ...(primordialCompletedOnTime !== undefined ? { primordialCompletedOnTime } : {}),
         },
         clientTimestamp: params.clientTimestamp ?? null,
         serverTimestamp: nowMs,

@@ -43,14 +43,24 @@ export interface ControlSessionParams {
   nowMs?: number;
 }
 
-function assertExpectedVersion(session: Session, expectedVersion?: number): void {
+type ControlOutcome = { error: AppError } | { idempotent: boolean; session: Session };
+
+function checkExpectedVersion(session: Session, expectedVersion?: number): AppError | null {
   if (expectedVersion !== undefined && session.version !== expectedVersion) {
-    throw new AppError(
+    return new AppError(
       409,
       'VERSION_CONFLICT',
       `Version mismatch: expected ${expectedVersion}, server is at ${session.version}`,
       { serverVersion: session.version, serverStatus: session.status }
     );
+  }
+  return null;
+}
+
+function assertExpectedVersion(session: Session, expectedVersion?: number): void {
+  const err = checkExpectedVersion(session, expectedVersion);
+  if (err) {
+    throw err;
   }
 }
 
@@ -329,7 +339,7 @@ export class SessionService {
   pauseSession(params: ControlSessionParams): { idempotent: boolean; session: Session } {
     const nowMs = params.nowMs ?? Date.now();
 
-    return this.deps.db.transaction(() => {
+    const outcome = this.deps.db.transaction((): ControlOutcome => {
       const loaded = loadOwnedSession(this.deps.sessionRepo, params.sessionId, params.userId);
       if (
         isIdempotentControlReplay(this.deps.eventLogRepo, {
@@ -343,14 +353,19 @@ export class SessionService {
       }
 
       const session = this.reconcileExpiredActiveSession(loaded, nowMs);
-      assertExpectedVersion(session, params.expectedVersion);
+      const versionError = checkExpectedVersion(session, params.expectedVersion);
+      if (versionError) {
+        return { error: versionError };
+      }
 
       if (session.status !== 'active') {
-        throw new AppError(
-          409,
-          'INVALID_SESSION_STATE',
-          `Cannot pause session in '${session.status}' state`
-        );
+        return {
+          error: new AppError(
+            409,
+            'INVALID_SESSION_STATE',
+            `Cannot pause session in '${session.status}' state`
+          ),
+        };
       }
 
       const effectiveIndex = computeCurrentIndexAt(session.plan, session.currentIndex, nowMs);
@@ -380,6 +395,11 @@ export class SessionService {
 
       return { idempotent: false, session: updated };
     })();
+
+    if ('error' in outcome) {
+      throw outcome.error;
+    }
+    return outcome;
   }
 
   resumeSession(params: ControlSessionParams): { idempotent: boolean; session: Session } {
@@ -444,7 +464,7 @@ export class SessionService {
   skipPhase(params: ControlSessionParams): { idempotent: boolean; session: Session } {
     const nowMs = params.nowMs ?? Date.now();
 
-    return this.deps.db.transaction(() => {
+    const outcome = this.deps.db.transaction((): ControlOutcome => {
       const loaded = loadOwnedSession(this.deps.sessionRepo, params.sessionId, params.userId);
       if (
         isIdempotentControlReplay(this.deps.eventLogRepo, {
@@ -458,14 +478,19 @@ export class SessionService {
       }
 
       const session = this.reconcileExpiredActiveSession(loaded, nowMs);
-      assertExpectedVersion(session, params.expectedVersion);
+      const versionError = checkExpectedVersion(session, params.expectedVersion);
+      if (versionError) {
+        return { error: versionError };
+      }
 
       if (session.status !== 'active' && session.status !== 'paused') {
-        throw new AppError(
-          409,
-          'INVALID_SESSION_STATE',
-          `Cannot skip phase in '${session.status}' state`
-        );
+        return {
+          error: new AppError(
+            409,
+            'INVALID_SESSION_STATE',
+            `Cannot skip phase in '${session.status}' state`
+          ),
+        };
       }
 
       const { effectiveIndex: currentIdx, accumulatedPauseMs } = resolveSessionMetricsAt(
@@ -474,11 +499,21 @@ export class SessionService {
       );
       const nextIndex = currentIdx + 1;
       const isFinished = nextIndex >= session.plan.length;
+      const skippedEndMs =
+        session.status === 'paused' && session.pausedAt !== null ? session.pausedAt : nowMs;
+      const updatedPlan = reanchorPlanFromIndex(
+        session.plan,
+        nextIndex,
+        nowMs,
+        currentIdx,
+        skippedEndMs
+      );
 
       const updated: Session = isFinished
         ? {
             ...session,
             status: 'completed',
+            plan: updatedPlan,
             currentIndex: session.plan.length,
             accumulatedPauseMs,
             pausedAt: null,
@@ -489,7 +524,7 @@ export class SessionService {
         : {
             ...session,
             status: 'active',
-            plan: reanchorPlanFromIndex(session.plan, nextIndex, nowMs),
+            plan: updatedPlan,
             currentIndex: nextIndex,
             accumulatedPauseMs,
             pausedAt: null,
@@ -505,6 +540,7 @@ export class SessionService {
           plan: updated.plan,
           reachedIndex: currentIdx,
           endedAt: nowMs,
+          pausedAt: session.status === 'paused' ? session.pausedAt : null,
           skippedFinal: true,
           nowMs,
         });
@@ -527,12 +563,17 @@ export class SessionService {
 
       return { idempotent: false, session: updated };
     })();
+
+    if ('error' in outcome) {
+      throw outcome.error;
+    }
+    return outcome;
   }
 
   resetSession(params: ControlSessionParams): { idempotent: boolean; session: Session } {
     const nowMs = params.nowMs ?? Date.now();
 
-    return this.deps.db.transaction(() => {
+    const outcome = this.deps.db.transaction((): ControlOutcome => {
       const loaded = loadOwnedSession(this.deps.sessionRepo, params.sessionId, params.userId);
       if (
         isIdempotentControlReplay(this.deps.eventLogRepo, {
@@ -546,14 +587,19 @@ export class SessionService {
       }
 
       const session = this.reconcileExpiredActiveSession(loaded, nowMs);
-      assertExpectedVersion(session, params.expectedVersion);
+      const versionError = checkExpectedVersion(session, params.expectedVersion);
+      if (versionError) {
+        return { error: versionError };
+      }
 
       if (session.status !== 'active' && session.status !== 'paused') {
-        throw new AppError(
-          409,
-          'INVALID_SESSION_STATE',
-          `Cannot reset session in '${session.status}' state`
-        );
+        return {
+          error: new AppError(
+            409,
+            'INVALID_SESSION_STATE',
+            `Cannot reset session in '${session.status}' state`
+          ),
+        };
       }
 
       const { effectiveIndex, accumulatedPauseMs } = resolveSessionMetricsAt(session, nowMs);
@@ -585,12 +631,17 @@ export class SessionService {
 
       return { idempotent: false, session: updated };
     })();
+
+    if ('error' in outcome) {
+      throw outcome.error;
+    }
+    return outcome;
   }
 
   endSession(params: ControlSessionParams): { idempotent: boolean; session: Session } {
     const nowMs = params.nowMs ?? Date.now();
 
-    return this.deps.db.transaction(() => {
+    const outcome = this.deps.db.transaction((): ControlOutcome => {
       const loaded = loadOwnedSession(this.deps.sessionRepo, params.sessionId, params.userId);
       if (
         isIdempotentControlReplay(this.deps.eventLogRepo, {
@@ -604,14 +655,19 @@ export class SessionService {
       }
 
       const session = this.reconcileExpiredActiveSession(loaded, nowMs);
-      assertExpectedVersion(session, params.expectedVersion);
+      const versionError = checkExpectedVersion(session, params.expectedVersion);
+      if (versionError) {
+        return { error: versionError };
+      }
 
       if (session.status !== 'active' && session.status !== 'paused') {
-        throw new AppError(
-          409,
-          'INVALID_SESSION_STATE',
-          `Cannot end session in '${session.status}' state`
-        );
+        return {
+          error: new AppError(
+            409,
+            'INVALID_SESSION_STATE',
+            `Cannot end session in '${session.status}' state`
+          ),
+        };
       }
 
       const { effectiveIndex, accumulatedPauseMs } = resolveSessionMetricsAt(session, nowMs);
@@ -633,6 +689,7 @@ export class SessionService {
         plan: updated.plan,
         reachedIndex: effectiveIndex,
         endedAt: nowMs,
+        pausedAt: session.status === 'paused' ? session.pausedAt : null,
         skippedFinal: false,
         nowMs,
       });
@@ -653,5 +710,10 @@ export class SessionService {
 
       return { idempotent: false, session: updated };
     })();
+
+    if ('error' in outcome) {
+      throw outcome.error;
+    }
+    return outcome;
   }
 }
