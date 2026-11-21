@@ -2,11 +2,12 @@ import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { AppError } from '../../errors/AppError.js';
 import type { UserRepository } from '../../repositories/userRepository.js';
+import { nonNilUuidSchema } from '../../security/validators.js';
 import { preferencePatchSchema, type PreferenceService } from '../../services/preferenceService.js';
 
 const updatePreferencesRequestSchema = preferencePatchSchema.and(
   z.object({
-    eventId: z.string().uuid().optional(),
+    eventId: nonNilUuidSchema.optional(),
     clientTimestamp: z.number().int().positive().optional(),
   })
 );

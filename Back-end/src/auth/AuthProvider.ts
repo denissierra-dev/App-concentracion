@@ -1,9 +1,10 @@
 import type { Request } from 'express';
-import type { User } from '../domain/types.js';
+import type { AuthSession, User } from '../domain/types.js';
 
 export interface AuthContext {
   user: User;
   provider: string;
+  authSession?: AuthSession;
 }
 
 /**

@@ -7,6 +7,15 @@ const app = createApp({
   db,
   audioDir: env.AUDIO_DIR,
   corsOrigin: env.CORS_ORIGIN,
+  trustProxy: env.TRUST_PROXY,
+  authConfig: {
+    sessionTtlHours: env.AUTH_SESSION_TTL_HOURS,
+    rememberMeDays: env.AUTH_REMEMBER_ME_DAYS,
+  },
+  googleAuthConfig: {
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+  },
   searchConfig: {
     googleApiKey: env.GOOGLE_CSE_API_KEY,
     googleCx: env.GOOGLE_CSE_CX,
@@ -15,9 +24,15 @@ const app = createApp({
   },
 });
 
-const server = app.listen(env.PORT, () => {
-  console.log(`[deep-work-backend] listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);
+const server = app.listen(env.PORT, env.HOST, () => {
+  console.log(
+    `[deep-work-backend] listening on http://${env.HOST}:${env.PORT} (${env.NODE_ENV})`
+  );
 });
+
+server.requestTimeout = 30_000;
+server.headersTimeout = 15_000;
+server.keepAliveTimeout = 5_000;
 
 function shutdown(signal: string): void {
   console.log(`[deep-work-backend] received ${signal}, shutting down...`);

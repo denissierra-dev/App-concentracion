@@ -9,6 +9,8 @@ export const SESSION_LIMITS = {
   SHORT_BREAK_STANDARD_MIN: 5,
   SHORT_BREAK_EXTENDED_MIN: 10,
   LONG_BREAK_MIN: 20,
+  MIN_LONG_BREAK_MIN: 5,
+  MAX_LONG_BREAK_MIN: 120,
   EXTENDED_FOCUS_THRESHOLD_MIN: 40,
 } as const;
 
@@ -28,6 +30,21 @@ export const SEARCH_LIMITS = {
   MIN_LIMIT: 1,
   MAX_LIMIT: 20,
   HISTORY_MAX_LIMIT: 100,
+} as const;
+
+export const AUTH_LIMITS = {
+  USERNAME_MIN_LEN: 3,
+  USERNAME_MAX_LEN: 32,
+  PASSWORD_MIN_LEN: 8,
+  PASSWORD_MAX_LEN: 128,
+  DISPLAY_NAME_MAX_LEN: 80,
+  EMAIL_MAX_LEN: 254,
+} as const;
+
+export const STATS_LIMITS = {
+  MIN_DAYS: 1,
+  MAX_DAYS: 365,
+  DEFAULT_DAYS: 30,
 } as const;
 
 export class SecurityValidationError extends Error {
@@ -60,6 +77,8 @@ const SAFE_TRACK_ID_REGEX = /^[a-z0-9-]{1,64}$/;
 const SAFE_AUDIO_STREAM_PATH_REGEX = /^\/api\/v1\/audio\/tracks\/[a-z0-9-]{1,64}\/stream$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LANG_CODE_REGEX = /^[a-z]{2}(-[a-z]{2})?$/i;
+const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,32}$/;
+const BEARER_TOKEN_REGEX = /^[A-Za-z0-9._~+/=-]{16,512}$/;
 
 /**
  * Strips control, null, and bidi-spoofing characters from plain single-line text.
@@ -178,7 +197,7 @@ export function assertSafeAudioStreamUrl(url: string): string {
 }
 
 /**
- * Validates that an external link (from search results) is strictly http: or https:
+ * Validates that an external link is strictly http: or https:
  * without embedded credentials, control chars, or scriptable schemes.
  */
 export function assertSafeExternalHttpUrl(rawUrl: string): string {
@@ -221,6 +240,14 @@ export const trackIdSchema = z
   .string()
   .trim()
   .regex(SAFE_TRACK_ID_REGEX, 'Track ID inválido');
+
+export const authTokenSchema = z
+  .string()
+  .refine((v) => !CONTROL_AND_BIDI_TEST_REGEX.test(v), {
+    message: 'Token contiene caracteres inválidos',
+  })
+  .transform((v) => v.trim())
+  .pipe(z.string().regex(BEARER_TOKEN_REGEX, 'Token de sesión inválido'));
 
 const safeTextSchema = (maxLen = 200) =>
   z.string().transform((val) => sanitizePlainText(val, maxLen));
@@ -312,6 +339,105 @@ function safeUserDescriptionSchema() {
     );
 }
 
+// --- Auth Input Schemas (Section 4.2) ---
+
+export const usernameInputSchema = z
+  .string()
+  .refine((v) => !CONTROL_AND_BIDI_TEST_REGEX.test(v), {
+    message: 'El usuario contiene caracteres de control no permitidos',
+  })
+  .transform((v) => v.trim())
+  .pipe(
+    z
+      .string()
+      .regex(
+        USERNAME_REGEX,
+        'Usuario: 3–32 caracteres alfanuméricos, guion, punto o guion bajo'
+      )
+  );
+
+export const emailInputSchema = safeSingleLineInputSchema(
+  'El correo',
+  3,
+  AUTH_LIMITS.EMAIL_MAX_LEN
+).pipe(z.string().email('Ingresa un correo electrónico válido'));
+
+export const registerPasswordSchema = z
+  .string()
+  .refine((v) => !CONTROL_AND_BIDI_TEST_REGEX.test(v), {
+    message: 'La contraseña contiene caracteres de control no permitidos',
+  })
+  .pipe(
+    z
+      .string()
+      .min(
+        AUTH_LIMITS.PASSWORD_MIN_LEN,
+        `La contraseña debe tener al menos ${AUTH_LIMITS.PASSWORD_MIN_LEN} caracteres`
+      )
+      .max(AUTH_LIMITS.PASSWORD_MAX_LEN, 'La contraseña excede el máximo permitido')
+  );
+
+export const loginPasswordSchema = z
+  .string()
+  .refine((v) => !CONTROL_AND_BIDI_TEST_REGEX.test(v), {
+    message: 'La contraseña contiene caracteres de control no permitidos',
+  })
+  .pipe(
+    z
+      .string()
+      .min(1, 'Ingresa tu contraseña')
+      .max(AUTH_LIMITS.PASSWORD_MAX_LEN, 'La contraseña excede el máximo permitido')
+  );
+
+export const registerInputSchema = z
+  .object({
+    username: usernameInputSchema,
+    password: registerPasswordSchema,
+    email: emailInputSchema.nullable().optional(),
+    displayName: safeSingleLineInputSchema('El nombre', 1, AUTH_LIMITS.DISPLAY_NAME_MAX_LEN)
+      .nullable()
+      .optional(),
+    rememberMe: z.boolean().optional(),
+    deviceLabel: safeSingleLineInputSchema('Dispositivo', 1, 80).optional(),
+  })
+  .strict();
+
+export const loginInputSchema = z
+  .object({
+    identifier: safeSingleLineInputSchema('Usuario o correo', 1, AUTH_LIMITS.EMAIL_MAX_LEN),
+    password: loginPasswordSchema,
+    rememberMe: z.boolean().optional(),
+    deviceLabel: safeSingleLineInputSchema('Dispositivo', 1, 80).optional(),
+  })
+  .strict();
+
+const googleOpaqueFieldSchema = z
+  .string()
+  .trim()
+  .refine((v) => !CONTROL_AND_BIDI_TEST_REGEX.test(v), {
+    message: 'Credencial de Google contiene caracteres no permitidos',
+  });
+
+export const googleAuthInputSchema = z
+  .union([
+    z
+      .object({
+        idToken: googleOpaqueFieldSchema.pipe(z.string().min(10).max(8192)),
+        rememberMe: z.boolean().optional(),
+        deviceLabel: safeSingleLineInputSchema('Dispositivo', 1, 80).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        code: googleOpaqueFieldSchema.pipe(z.string().min(4).max(2048)),
+        redirectUri: safeExternalUrlSchema,
+        codeVerifier: googleOpaqueFieldSchema.pipe(z.string().min(16).max(256)).optional(),
+        rememberMe: z.boolean().optional(),
+        deviceLabel: safeSingleLineInputSchema('Dispositivo', 1, 80).optional(),
+      })
+      .strict(),
+  ]);
+
 // --- Input Schemas (Client -> Server) ---
 
 export const themePreferenceSchema = z.enum(['light', 'dark', 'system']);
@@ -355,7 +481,13 @@ export const updatePreferencesInputSchema = z
       .max(SESSION_LIMITS.MAX_FOCUS_MIN)
       .optional(),
     shortBreakMin: z.number().finite().int().min(1).max(60).optional(),
-    longBreakMin: z.number().finite().int().min(5).max(60).optional(),
+    longBreakMin: z
+      .number()
+      .finite()
+      .int()
+      .min(SESSION_LIMITS.MIN_LONG_BREAK_MIN)
+      .max(SESSION_LIMITS.MAX_LONG_BREAK_MIN)
+      .optional(),
     cyclesBeforeLongBreak: z
       .number()
       .finite()
@@ -373,6 +505,7 @@ export const updatePreferencesInputSchema = z
     message: 'Debes modificar al menos una preferencia',
   });
 
+export const priorityLevelSchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 export const userTaskPrioritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 
 export const taskTagSchema = safeSingleLineInputSchema(
@@ -424,7 +557,7 @@ export const updateTaskInputSchema = z
 export const taskQuerySchema = z
   .object({
     status: z.enum(['all', 'pending', 'completed']).optional(),
-    priority: userTaskPrioritySchema.optional(),
+    priority: priorityLevelSchema.optional(),
     tag: taskTagSchema.optional(),
     search: safeSingleLineInputSchema('La búsqueda', 1, TASK_LIMITS.SEARCH_MAX_LEN).optional(),
     overdue: z.boolean().optional(),
@@ -477,6 +610,17 @@ export const searchHistoryQuerySchema = z
   })
   .strict();
 
+// --- Stats Input Schemas (Phase 8) ---
+
+export const statsDaysSchema = z
+  .number()
+  .finite()
+  .int()
+  .min(STATS_LIMITS.MIN_DAYS)
+  .max(STATS_LIMITS.MAX_DAYS);
+
+export const statsExportFormatSchema = z.enum(['json', 'csv']);
+
 // --- Response Schemas (Server -> Client) ---
 // Using default Zod stripping so unexpected/extraneous fields are dropped safely.
 
@@ -494,13 +638,65 @@ export const preferenceSchema = z.object({
   userId: uuidSchema,
   focusDurationMin: z.number().int().min(1).max(180),
   shortBreakMin: z.number().int().min(1).max(60),
-  longBreakMin: z.number().int().min(5).max(60),
+  longBreakMin: z
+    .number()
+    .int()
+    .min(SESSION_LIMITS.MIN_LONG_BREAK_MIN)
+    .max(SESSION_LIMITS.MAX_LONG_BREAK_MIN),
   cyclesBeforeLongBreak: z.number().int().min(1).max(12),
   volumeFocus: z.number().min(0).max(1),
   volumeBreak: z.number().min(0).max(1),
   notificationsEnabled: z.boolean(),
   theme: themePreferenceSchema,
   updatedAt: z.number().finite().nonnegative(),
+});
+
+export const authProviderTypeSchema = z.enum(['password', 'google', 'device']);
+
+export const publicUserSchema = z.object({
+  id: uuidSchema,
+  authProvider: authProviderTypeSchema,
+  deviceId: uuidSchema.optional(),
+  username: safeTextSchema(64).nullable().optional(),
+  email: safeTextSchema(254).nullable().optional(),
+  emailVerified: z.boolean().optional(),
+  displayName: safeTextSchema(80).nullable().optional(),
+  avatarUrl: safeExternalUrlSchema.nullable().optional(),
+  hasPassword: z.boolean().optional(),
+  hasGoogleLinked: z.boolean().optional(),
+  createdAt: z.number().finite().nonnegative(),
+});
+
+export const authProvidersResponseSchema = z.object({
+  providers: z.object({
+    password: z.object({ enabled: z.boolean() }),
+    google: z.object({
+      enabled: z.boolean(),
+      codeFlowEnabled: z.boolean(),
+      clientId: safeTextSchema(200).nullable().optional(),
+    }),
+    device: z.object({ enabled: z.boolean() }),
+  }),
+  serverTimeMs: z.number().finite().positive(),
+});
+
+export const authSessionSummarySchema = z.object({
+  id: uuidSchema,
+  persistent: z.boolean(),
+  expiresAt: z.number().finite().positive(),
+  deviceLabel: safeTextSchema(80).nullable().optional(),
+});
+
+export const authSuccessResponseSchema = z.object({
+  token: authTokenSchema,
+  tokenType: z.literal('Bearer'),
+  expiresAt: z.number().finite().positive(),
+  rememberMe: z.boolean(),
+  provider: authProviderTypeSchema,
+  created: z.boolean(),
+  user: publicUserSchema,
+  preferences: preferenceSchema.nullable(),
+  session: authSessionSummarySchema,
 });
 
 export const authDeviceResponseSchema = z.object({
@@ -515,14 +711,43 @@ export const authDeviceResponseSchema = z.object({
 });
 
 export const authMeResponseSchema = z.object({
-  provider: z.literal('device'),
-  user: z.object({
-    id: uuidSchema,
-    authProvider: z.literal('device'),
-    deviceId: uuidSchema,
-    createdAt: z.number().finite().nonnegative(),
-  }),
+  provider: authProviderTypeSchema,
+  user: publicUserSchema,
   preferences: preferenceSchema.nullable(),
+  session: authSessionSummarySchema.nullable().optional(),
+});
+
+export const authLinkGoogleResponseSchema = z.object({
+  linked: z.literal(true),
+  user: publicUserSchema,
+});
+
+export const authLogoutResponseSchema = z.object({
+  loggedOut: z.literal(true),
+  revokedCount: z.number().int().nonnegative().optional(),
+});
+
+export const authSessionEntrySchema = z.object({
+  id: uuidSchema,
+  userId: uuidSchema,
+  provider: authProviderTypeSchema,
+  persistent: z.boolean(),
+  deviceLabel: safeTextSchema(80).nullable(),
+  createdAt: z.number().finite().nonnegative(),
+  lastUsedAt: z.number().finite().nonnegative(),
+  expiresAt: z.number().finite().positive(),
+  revokedAt: z.number().finite().nonnegative().nullable(),
+  isCurrent: z.boolean(),
+});
+
+export const authSessionsListResponseSchema = z.object({
+  sessions: z.array(authSessionEntrySchema).max(100),
+  serverTimeMs: z.number().finite().positive(),
+});
+
+export const revokeAuthSessionResponseSchema = z.object({
+  revoked: z.literal(true),
+  id: uuidSchema,
 });
 
 export const preferencesResponseSchema = z.object({
@@ -600,8 +825,6 @@ export const audioPolicyResponseSchema = z.object({
 });
 
 // --- Task Schemas (Section 4.6) ---
-
-export const priorityLevelSchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 
 export const taskSchema = z.object({
   id: uuidSchema,
@@ -690,7 +913,21 @@ export const queuedSyncEventSchema = z.object({
   eventType: allowedSyncEventTypeSchema,
   expectedVersion: z.number().int().positive().optional(),
   clientTimestamp: z.number().finite().positive().optional(),
-  payload: z.record(z.unknown()),
+  payload: z
+    .record(z.unknown())
+    .refine((obj) => Object.keys(obj).length <= 20, {
+      message: 'Payload de sincronización excede el máximo de campos permitidos',
+    })
+    .refine(
+      (obj) => {
+        try {
+          return JSON.stringify(obj).length <= 8192;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Payload de sincronización excede el tamaño máximo permitido' }
+    ),
 });
 
 export const syncBatchRequestSchema = z
@@ -808,6 +1045,76 @@ export const deleteSearchHistoryEntryResponseSchema = z.object({
 
 export const deleteSearchHistoryResponseSchema = z.object({
   deletedCount: z.number().int().nonnegative(),
+  serverTimeMs: z.number().finite().positive(),
+});
+
+// --- Stats Response Schemas (Section 4.9 — Phase 8) ---
+
+export const dailyProductivityPointSchema = z.object({
+  date: safeTextSchema(16),
+  sessionsCompleted: z.number().int().nonnegative(),
+  focusMs: z.number().finite().nonnegative(),
+  focusMinutes: z.number().finite().nonnegative(),
+  tasksCompleted: z.number().int().nonnegative(),
+  primordialCompleted: z.number().int().nonnegative(),
+  primordialIgnored: z.number().int().nonnegative(),
+});
+
+export const weekdayProductivityPointSchema = z.object({
+  weekday: z.number().int().min(0).max(6),
+  label: safeTextSchema(16),
+  sessionsCompleted: z.number().int().nonnegative(),
+  focusMs: z.number().finite().nonnegative(),
+  tasksCompleted: z.number().int().nonnegative(),
+});
+
+export const hourlyProductivityPointSchema = z.object({
+  hour: z.number().int().min(0).max(23),
+  focusCycles: z.number().int().nonnegative(),
+  focusMs: z.number().finite().nonnegative(),
+  tasksCompleted: z.number().int().nonnegative(),
+});
+
+export const statsDashboardResponseSchema = z.object({
+  today: z.object({
+    date: safeTextSchema(16),
+    sessionsCompleted: z.number().int().nonnegative(),
+    focusMs: z.number().finite().nonnegative(),
+    focusMinutes: z.number().finite().nonnegative(),
+    tasksCompleted: z.number().int().nonnegative(),
+  }),
+  totals: z.object({
+    sessionsCompleted: z.number().int().nonnegative(),
+    focusMs: z.number().finite().nonnegative(),
+    focusMinutes: z.number().finite().nonnegative(),
+    cyclesCompleted: z.number().int().nonnegative(),
+    tasksCompleted: z.number().int().nonnegative(),
+    tasksPending: z.number().int().nonnegative(),
+  }),
+  streaks: z.object({
+    currentDays: z.number().int().nonnegative(),
+    longestDays: z.number().int().nonnegative(),
+    lastActiveDate: safeTextSchema(16).nullable(),
+  }),
+  primordial: z.object({
+    completedBeforeDeadline: z.number().int().nonnegative(),
+    ignored: z.number().int().nonnegative(),
+    activePending: z.number().int().nonnegative(),
+    completionRate: z.number().min(0).max(1).nullable(),
+  }),
+  productivity: z.object({
+    windowDays: z.number().int().positive(),
+    byDay: z.array(dailyProductivityPointSchema).max(366),
+    byWeekday: z.array(weekdayProductivityPointSchema).max(7),
+    byHour: z.array(hourlyProductivityPointSchema).max(24),
+    peakHour: z
+      .object({
+        hour: z.number().int().min(0).max(23),
+        focusMs: z.number().finite().nonnegative(),
+        tasksCompleted: z.number().int().nonnegative(),
+      })
+      .nullable(),
+  }),
   serverTimeMs: z.number().finite().positive(),
 });
 

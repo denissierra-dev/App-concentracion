@@ -1,11 +1,12 @@
 import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { AppError } from '../../errors/AppError.js';
+import { nonNilUuidSchema } from '../../security/validators.js';
 import { SESSION_LIMITS } from '../../services/sessionPlanner.js';
 import type { SessionService } from '../../services/sessionService.js';
 
 const createSessionSchema = z.object({
-  sessionId: z.string().uuid().optional(),
+  sessionId: nonNilUuidSchema.optional(),
   focusDurationMin: z
     .number()
     .int()
@@ -18,13 +19,13 @@ const createSessionSchema = z.object({
     .min(SESSION_LIMITS.MIN_CYCLES)
     .max(SESSION_LIMITS.MAX_CYCLES)
     .default(SESSION_LIMITS.CYCLES_BEFORE_LONG_BREAK),
-  eventId: z.string().uuid().optional(),
+  eventId: nonNilUuidSchema.optional(),
   clientTimestamp: z.number().int().positive().optional(),
 });
 
 const controlEventSchema = z
   .object({
-    eventId: z.string().uuid().optional(),
+    eventId: nonNilUuidSchema.optional(),
     expectedVersion: z.number().int().min(1).optional(),
     clientTimestamp: z.number().int().positive().optional(),
   })
@@ -32,7 +33,7 @@ const controlEventSchema = z
   .default({});
 
 const sessionIdParamSchema = z.object({
-  id: z.string().uuid(),
+  id: nonNilUuidSchema,
 });
 
 export interface SessionsRouterDeps {

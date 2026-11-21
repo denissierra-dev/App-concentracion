@@ -567,4 +567,200 @@ describe('Fase 1 & 2: Sesiones, Plan Precomputado y Ciclos/Descansos', () => {
       durationMs: 12 * 60_000,
     });
   });
+
+  it('excludes paused duration from daily_stats.focusMs on early end, full completion, and end-while-paused', async () => {
+    const app = createApp({ db });
+    const statsRepo = new StatsRepository(db);
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Case 1: 5m focus -> 10m pause -> resume -> 5m focus -> early end => 10m focusMs (not 20m)
+    const s1 = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ focusDurationMin: 25, totalCycles: 1 });
+    const id1 = s1.body.session.id as string;
+
+    vi.advanceTimersByTime(5 * 60_000);
+    await request(app).post(`/api/v1/sessions/${id1}/pause`).set('x-device-id', deviceId).send({});
+    vi.advanceTimersByTime(10 * 60_000);
+    await request(app).post(`/api/v1/sessions/${id1}/resume`).set('x-device-id', deviceId).send({});
+    vi.advanceTimersByTime(5 * 60_000);
+    await request(app).post(`/api/v1/sessions/${id1}/end`).set('x-device-id', deviceId).send({});
+
+    expect(statsRepo.getDailyStats(userId, today)?.focusMs).toBe(10 * 60_000);
+
+    // Case 2: 5m focus -> 10m pause -> end while paused => +5m focusMs (total 15m, not 25m)
+    const s2 = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ focusDurationMin: 25, totalCycles: 1 });
+    const id2 = s2.body.session.id as string;
+
+    vi.advanceTimersByTime(5 * 60_000);
+    await request(app).post(`/api/v1/sessions/${id2}/pause`).set('x-device-id', deviceId).send({});
+    vi.advanceTimersByTime(10 * 60_000);
+    await request(app).post(`/api/v1/sessions/${id2}/end`).set('x-device-id', deviceId).send({});
+
+    expect(statsRepo.getDailyStats(userId, today)?.focusMs).toBe(15 * 60_000);
+
+    // Case 3: 5m focus -> 10m pause -> resume -> remaining 20m focus -> end during break => +25m (total 40m)
+    const s3 = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ focusDurationMin: 25, totalCycles: 1 });
+    const id3 = s3.body.session.id as string;
+
+    vi.advanceTimersByTime(5 * 60_000);
+    await request(app).post(`/api/v1/sessions/${id3}/pause`).set('x-device-id', deviceId).send({});
+    vi.advanceTimersByTime(10 * 60_000);
+    await request(app).post(`/api/v1/sessions/${id3}/resume`).set('x-device-id', deviceId).send({});
+    vi.advanceTimersByTime(21 * 60_000);
+    await request(app).post(`/api/v1/sessions/${id3}/end`).set('x-device-id', deviceId).send({});
+
+    expect(statsRepo.getDailyStats(userId, today)?.focusMs).toBe(40 * 60_000);
+  });
+
+  it('always ensures long_break is at least double short_break, including 60m focus sessions', async () => {
+    const app = createApp({ db });
+
+    // Even if user previously saved short=5, long=10 (double of 5),
+    // switching to a 60m focus session bumps short_break to 10m and long_break to 20m (never 10m/10m).
+    const prefRes = await request(app)
+      .patch('/api/v1/preferences')
+      .set('x-device-id', deviceId)
+      .send({ shortBreakMin: 5, longBreakMin: 10 });
+    expect(prefRes.status).toBe(200);
+    expect(prefRes.body.preferences.shortBreakMin).toBe(5);
+    expect(prefRes.body.preferences.longBreakMin).toBe(10);
+
+    const session60 = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ focusDurationMin: 60, totalCycles: 4 });
+    expect(session60.status).toBe(201);
+
+    const plan60 = session60.body.session.plan;
+    expect(plan60[1]).toMatchObject({ phaseType: 'short_break', durationMs: 10 * 60_000 });
+    expect(plan60[7]).toMatchObject({ phaseType: 'long_break', durationMs: 20 * 60_000 });
+
+    // Updating shortBreakMin to 15 automatically raises longBreakMin to at least 30 (2x)
+    const pref15 = await request(app)
+      .patch('/api/v1/preferences')
+      .set('x-device-id', deviceId)
+      .send({ shortBreakMin: 15 });
+    expect(pref15.status).toBe(200);
+    expect(pref15.body.preferences.longBreakMin).toBe(30);
+  });
+
+  it('marks intermediate skipped focus phases as skipped without crediting phantom focusMs or completed cycles', async () => {
+    const app = createApp({ db });
+    const statsRepo = new StatsRepository(db);
+    const today = new Date().toISOString().slice(0, 10);
+
+    // 2 cycles: phase 0 (focus 25m), phase 1 (break 5m), phase 2 (focus 25m), phase 3 (break 5m)
+    const created = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ focusDurationMin: 25, totalCycles: 2 });
+    const sessionId = created.body.session.id as string;
+
+    // 1 minute into phase 0 (focus), user skips phase 0 -> advances to phase 1 (short_break)
+    vi.advanceTimersByTime(60_000);
+    const skippedFocus = await request(app)
+      .post(`/api/v1/sessions/${sessionId}/skip`)
+      .set('x-device-id', deviceId)
+      .send({});
+    expect(skippedFocus.status).toBe(200);
+    expect(skippedFocus.body.session.plan[0].skipped).toBe(true);
+    expect(skippedFocus.body.session.currentIndex).toBe(1);
+
+    // Complete phase 1 (5m break) and phase 2 (25m focus), then end 1m into phase 3
+    vi.advanceTimersByTime(31 * 60_000);
+    const ended = await request(app)
+      .post(`/api/v1/sessions/${sessionId}/end`)
+      .set('x-device-id', deviceId)
+      .send({});
+    expect(ended.status).toBe(200);
+
+    // Only phase 2 (25m) must be credited; skipped phase 0 must NOT add phantom focusMs or completed cycle
+    expect(statsRepo.getDailyStats(userId, today)?.focusMs).toBe(25 * 60_000);
+    expect(statsRepo.countCompletedFocusCycles(userId)).toBe(1);
+
+    const cycles = db
+      .prepare(
+        'SELECT cycle_index, phase_type, completed_at, skipped FROM cycles WHERE session_id = ? ORDER BY cycle_index ASC'
+      )
+      .all(sessionId) as Array<{
+      cycle_index: number;
+      phase_type: string;
+      completed_at: number | null;
+      skipped: number;
+    }>;
+    expect(cycles[0]).toMatchObject({
+      cycle_index: 0,
+      phase_type: 'focus',
+      completed_at: null,
+      skipped: 1,
+    });
+    expect(cycles[2]).toMatchObject({
+      cycle_index: 2,
+      phase_type: 'focus',
+      skipped: 0,
+    });
+    expect(cycles[2]?.completed_at).not.toBeNull();
+  });
+
+  it('persists reconcileExpiredActiveSession in SQLite even when control actions return 409', async () => {
+    const app = createApp({ db });
+    const sessionRepo = new SessionRepository(db);
+    const statsRepo = new StatsRepository(db);
+
+    // Case 1: pause with stale expectedVersion on an expired session returns 409 VERSION_CONFLICT
+    // AND commits the reconciled 'completed' state (version 2) in SQLite
+    const s1 = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ focusDurationMin: 25, totalCycles: 1 });
+    const id1 = s1.body.session.id as string;
+
+    vi.advanceTimersByTime(60 * 60_000);
+
+    const conflictPause = await request(app)
+      .post(`/api/v1/sessions/${id1}/pause`)
+      .set('x-device-id', deviceId)
+      .send({ expectedVersion: 1 });
+    expect(conflictPause.status).toBe(409);
+    expect(conflictPause.body.error.code).toBe('VERSION_CONFLICT');
+    expect(conflictPause.body.error.details).toEqual({
+      serverVersion: 2,
+      serverStatus: 'completed',
+    });
+
+    const dbSession1 = sessionRepo.findByIdForUser(id1, userId);
+    expect(dbSession1?.status).toBe('completed');
+    expect(dbSession1?.version).toBe(2);
+    expect(statsRepo.countCompletedFocusCycles(userId)).toBe(1);
+
+    // Case 2: skip/reset/end without expectedVersion on an expired session returns 409 INVALID_SESSION_STATE
+    // AND commits the reconciled 'completed' state in SQLite
+    const s2 = await request(app)
+      .post('/api/v1/sessions')
+      .set('x-device-id', deviceId)
+      .send({ focusDurationMin: 25, totalCycles: 1 });
+    const id2 = s2.body.session.id as string;
+
+    vi.advanceTimersByTime(60 * 60_000);
+
+    const invalidEnd = await request(app)
+      .post(`/api/v1/sessions/${id2}/end`)
+      .set('x-device-id', deviceId)
+      .send({});
+    expect(invalidEnd.status).toBe(409);
+    expect(invalidEnd.body.error.code).toBe('INVALID_SESSION_STATE');
+
+    const dbSession2 = sessionRepo.findByIdForUser(id2, userId);
+    expect(dbSession2?.status).toBe('completed');
+    expect(dbSession2?.version).toBe(2);
+    expect(statsRepo.countCompletedFocusCycles(userId)).toBe(2);
+  });
 });

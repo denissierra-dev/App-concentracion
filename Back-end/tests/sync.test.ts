@@ -275,4 +275,115 @@ describe('Fase 4 (4A & 4B): Contrato de Sincronización por Eventos (/api/v1/syn
       errorCode: 'TASK_ID_CONFLICT',
     });
   });
+
+  it('commits sync batches in a single outer transaction using savepoints for per-event conflicts', async () => {
+    const app = createApp({ db });
+    const txSpy = vi.spyOn(db, 'transaction');
+
+    const task1Id = crypto.randomUUID();
+    const task2Id = crypto.randomUUID();
+    const missingTaskId = crypto.randomUUID();
+
+    const res = await request(app)
+      .post('/api/v1/sync')
+      .set('x-device-id', deviceId)
+      .send({
+        events: [
+          {
+            eventId: crypto.randomUUID(),
+            entityType: 'task',
+            entityId: task1Id,
+            eventType: 'TASK_CREATED',
+            payload: { title: 'Batch task 1' },
+          },
+          {
+            eventId: crypto.randomUUID(),
+            entityType: 'task',
+            entityId: missingTaskId,
+            eventType: 'TASK_UPDATED',
+            payload: { completed: true },
+          },
+          {
+            eventId: crypto.randomUUID(),
+            entityType: 'task',
+            entityId: task2Id,
+            eventType: 'TASK_CREATED',
+            payload: { title: 'Batch task 2' },
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.results.map((r: { status: string }) => r.status)).toEqual([
+      'applied',
+      'conflict',
+      'applied',
+    ]);
+    expect(res.body.snapshot.taskCounts).toEqual({ total: 2, pending: 2, completed: 0 });
+    expect(txSpy).toHaveBeenCalled();
+
+    txSpy.mockRestore();
+  });
+
+  it('does not resurrect deleted tasks when replaying a previously applied TASK_CREATED eventId', async () => {
+    const app = createApp({ db });
+    const taskId = crypto.randomUUID();
+    const createEventId = crypto.randomUUID();
+    const deleteEventId = crypto.randomUUID();
+
+    const firstSync = await request(app)
+      .post('/api/v1/sync')
+      .set('x-device-id', deviceId)
+      .send({
+        events: [
+          {
+            eventId: createEventId,
+            entityType: 'task',
+            entityId: taskId,
+            eventType: 'TASK_CREATED',
+            payload: { title: 'Temporary offline task' },
+          },
+          {
+            eventId: deleteEventId,
+            entityType: 'task',
+            entityId: taskId,
+            eventType: 'TASK_DELETED',
+          },
+        ],
+      });
+    expect(firstSync.status).toBe(200);
+    expect(firstSync.body.results.map((r: { status: string }) => r.status)).toEqual([
+      'applied',
+      'applied',
+    ]);
+    expect(firstSync.body.snapshot.taskCounts.total).toBe(0);
+
+    // Replaying the batch must report duplicate and keep taskCounts.total === 0
+    const replaySync = await request(app)
+      .post('/api/v1/sync')
+      .set('x-device-id', deviceId)
+      .send({
+        events: [
+          {
+            eventId: createEventId,
+            entityType: 'task',
+            entityId: taskId,
+            eventType: 'TASK_CREATED',
+            payload: { title: 'Temporary offline task' },
+          },
+          {
+            eventId: deleteEventId,
+            entityType: 'task',
+            entityId: taskId,
+            eventType: 'TASK_DELETED',
+          },
+        ],
+      });
+    expect(replaySync.status).toBe(200);
+    expect(replaySync.body.results.map((r: { status: string }) => r.status)).toEqual([
+      'duplicate',
+      'duplicate',
+    ]);
+    expect(replaySync.body.snapshot.taskCounts.total).toBe(0);
+  });
 });

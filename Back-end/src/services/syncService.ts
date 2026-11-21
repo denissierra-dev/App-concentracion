@@ -1,8 +1,15 @@
 import { z } from 'zod';
+import type { AppDatabase } from '../db/database.js';
 import type { Preference, Session, SessionPlanPhase, Task } from '../domain/types.js';
 import { AppError } from '../errors/AppError.js';
 import type { TaskCounts, TaskRepository } from '../repositories/taskRepository.js';
 import type { UserRepository } from '../repositories/userRepository.js';
+import {
+  boundedSyncPayloadSchema,
+  nonNilUuidSchema,
+  safeMultilineTextSchema,
+  safeSingleLineTextSchema,
+} from '../security/validators.js';
 import { preferencePatchSchema, type PreferenceService } from './preferenceService.js';
 import type { PriorityRecalcQueue } from './priorityQueue.js';
 import { SESSION_LIMITS } from './sessionPlanner.js';
@@ -10,8 +17,8 @@ import type { SessionService } from './sessionService.js';
 import type { TaskService } from './taskService.js';
 
 const baseEventFields = {
-  eventId: z.string().uuid(),
-  entityId: z.string().uuid(),
+  eventId: nonNilUuidSchema,
+  entityId: nonNilUuidSchema,
   clientTimestamp: z.number().int().positive().optional(),
 };
 
@@ -49,7 +56,7 @@ const sessionControlEventSchema = z.object({
     'SESSION_ENDED',
   ]),
   expectedVersion: z.number().int().min(1).optional(),
-  payload: z.record(z.unknown()).optional(),
+  payload: boundedSyncPayloadSchema.optional(),
 });
 
 const preferenceUpdateEventSchema = z.object({
@@ -60,15 +67,15 @@ const preferenceUpdateEventSchema = z.object({
 });
 
 const manualPrioritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
-const taskTagsSchema = z.array(z.string().trim().min(1).max(32)).max(10);
+const taskTagsSchema = z.array(safeSingleLineTextSchema(1, 32, 'Tag')).max(10);
 
 const taskCreateEventSchema = z.object({
   ...baseEventFields,
   entityType: z.literal('task'),
   eventType: z.literal('TASK_CREATED'),
   payload: z.object({
-    title: z.string().trim().min(1).max(200),
-    description: z.string().trim().max(2000).nullable().optional(),
+    title: safeSingleLineTextSchema(1, 200, 'Title'),
+    description: safeMultilineTextSchema(2000, 'Description').nullable().optional(),
     userPriority: manualPrioritySchema.optional(),
     tags: taskTagsSchema.optional(),
     dueAt: z.number().int().positive().nullable().optional(),
@@ -81,8 +88,8 @@ const taskUpdateEventSchema = z.object({
   eventType: z.literal('TASK_UPDATED'),
   payload: z
     .object({
-      title: z.string().trim().min(1).max(200).optional(),
-      description: z.string().trim().max(2000).nullable().optional(),
+      title: safeSingleLineTextSchema(1, 200, 'Title').optional(),
+      description: safeMultilineTextSchema(2000, 'Description').nullable().optional(),
       completed: z.boolean().optional(),
       userPriority: manualPrioritySchema.optional(),
       tags: taskTagsSchema.optional(),
@@ -104,7 +111,7 @@ const taskDeleteEventSchema = z.object({
   ...baseEventFields,
   entityType: z.literal('task'),
   eventType: z.literal('TASK_DELETED'),
-  payload: z.record(z.unknown()).optional(),
+  payload: boundedSyncPayloadSchema.optional(),
 });
 
 /**
@@ -151,6 +158,7 @@ export interface FullSyncState extends SyncSnapshot {
 }
 
 export interface SyncServiceDeps {
+  db: AppDatabase;
   sessionService: SessionService;
   preferenceService: PreferenceService;
   taskService: TaskService;
@@ -183,53 +191,58 @@ export class SyncService {
     events: SyncEventInput[],
     nowMs: number = Date.now()
   ): { results: SyncEventResult[]; snapshot: SyncSnapshot } {
-    const results: SyncEventResult[] = [];
     const tasksToRecalc = new Set<string>();
 
-    for (const event of events) {
-      try {
-        const outcome = this.applySingleEvent(userId, event, nowMs);
-        if (outcome.recalcTaskId) {
-          tasksToRecalc.add(outcome.recalcTaskId);
-        }
-        results.push({
-          eventId: event.eventId,
-          entityType: event.entityType,
-          entityId: event.entityId,
-          eventType: event.eventType,
-          status: outcome.duplicate ? 'duplicate' : 'applied',
-          ...(outcome.version !== undefined ? { version: outcome.version } : {}),
-        });
-      } catch (err) {
-        if (err instanceof AppError) {
-          results.push({
+    const { results, snapshot } = this.deps.db.transaction(() => {
+      const batchResults: SyncEventResult[] = [];
+
+      for (const event of events) {
+        try {
+          const outcome = this.applySingleEvent(userId, event, nowMs);
+          if (outcome.recalcTaskId) {
+            tasksToRecalc.add(outcome.recalcTaskId);
+          }
+          batchResults.push({
             eventId: event.eventId,
             entityType: event.entityType,
             entityId: event.entityId,
             eventType: event.eventType,
-            status: 'conflict',
-            errorCode: err.code,
-            message: err.message,
-            ...(err.details !== undefined ? { details: err.details } : {}),
+            status: outcome.duplicate ? 'duplicate' : 'applied',
+            ...(outcome.version !== undefined ? { version: outcome.version } : {}),
           });
-        } else {
-          throw err;
+        } catch (err) {
+          if (err instanceof AppError) {
+            batchResults.push({
+              eventId: event.eventId,
+              entityType: event.entityType,
+              entityId: event.entityId,
+              eventType: event.eventType,
+              status: 'conflict',
+              errorCode: err.code,
+              message: err.message,
+              ...(err.details !== undefined ? { details: err.details } : {}),
+            });
+          } else {
+            throw err;
+          }
         }
       }
-    }
+
+      const active = this.deps.sessionService.getActiveSessionState(userId, nowMs);
+      const batchSnapshot: SyncSnapshot = {
+        activeSession: active.session,
+        currentPhase: active.currentPhase,
+        preferences: this.deps.userRepo.getPreferencesByUserId(userId),
+        taskCounts: this.deps.taskRepo.getCountsByUser(userId),
+        serverTimeMs: nowMs,
+      };
+
+      return { results: batchResults, snapshot: batchSnapshot };
+    })();
 
     for (const taskId of tasksToRecalc) {
       this.deps.priorityQueue.enqueue(userId, taskId);
     }
-
-    const active = this.deps.sessionService.getActiveSessionState(userId, nowMs);
-    const snapshot: SyncSnapshot = {
-      activeSession: active.session,
-      currentPhase: active.currentPhase,
-      preferences: this.deps.userRepo.getPreferencesByUserId(userId),
-      taskCounts: this.deps.taskRepo.getCountsByUser(userId),
-      serverTimeMs: nowMs,
-    };
 
     return { results, snapshot };
   }

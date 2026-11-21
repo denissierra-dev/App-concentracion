@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type {
   PriorityLevel,
   Task,
@@ -76,6 +76,13 @@ function parseDueAtInput(raw: string): number | null | 'invalid' {
   return Math.trunc(ms);
 }
 
+const DUE_DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', {
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 function formatDueAtDisplay(ms: number | null): string | null {
   if (!ms || !Number.isFinite(ms)) {
     return null;
@@ -84,12 +91,7 @@ function formatDueAtDisplay(ms: number | null): string | null {
   if (Number.isNaN(date.getTime())) {
     return null;
   }
-  return date.toLocaleString('es-ES', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return DUE_DATE_FORMATTER.format(date);
 }
 
 function parseTagsCsv(raw: string): string[] {
@@ -113,7 +115,7 @@ function toUserPriority(priority: PriorityLevel): UserTaskPriority {
   return priority === 'CRITICAL' ? 'HIGH' : priority;
 }
 
-export function TasksPanel({
+export const TasksPanel = memo(function TasksPanel({
   tasks,
   counts,
   filteredCount,
@@ -136,14 +138,64 @@ export function TasksPanel({
 
   const [searchDraft, setSearchDraft] = useState(query.search ?? '');
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const expandedTaskRef = useRef<HTMLLIElement | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editPriority, setEditPriority] = useState<UserTaskPriority>('LOW');
   const [editTagsInput, setEditTagsInput] = useState('');
   const [editDueAt, setEditDueAt] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!expandedTaskId || editingId !== null) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (expandedTaskRef.current && !expandedTaskRef.current.contains(event.target as Node)) {
+        setExpandedTaskId(null);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === 'Escape' &&
+        !document.querySelector('[role="dialog"][aria-modal="true"], [role="menu"]')
+      ) {
+        setExpandedTaskId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [expandedTaskId, editingId]);
+
+  useEffect(() => {
+    if (expandedTaskId && !tasks.some((item) => item.id === expandedTaskId)) {
+      setExpandedTaskId(null);
+    }
+  }, [tasks, expandedTaskId]);
+
+  const dueLabelsById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const task of tasks) {
+      const formatted = formatDueAtDisplay(task.dueAt);
+      if (formatted) {
+        map.set(task.id, formatted);
+      }
+    }
+    return map;
+  }, [tasks]);
 
   const handleCreateSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -264,32 +316,47 @@ export function TasksPanel({
     query.priority || query.tag || query.search || query.overdue !== undefined
   );
 
+  const filtersOpen = showFilters || hasActiveFilters;
+
   return (
     <section
-      className="rounded-2xl border border-edge bg-surface p-6 shadow-sm"
+      className="liquid-glass liquid-panel-enter rounded-3xl p-5 sm:p-6"
       aria-labelledby="tasks-heading"
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="tasks-heading" className="text-lg font-bold text-heading">
-          Tareas de concentración
-        </h2>
-        <div className="flex flex-wrap gap-1.5 text-xs font-semibold">
-          <span className="rounded-full bg-elevated px-2.5 py-1 text-heading">
-            Pendientes: {counts.pending}
-          </span>
-          <span className="rounded-full bg-elevated px-2.5 py-1 text-muted">
-            Completadas: {counts.completed}
-          </span>
-          {hasActiveFilters && filteredCount !== undefined && (
-            <span className="rounded-full bg-brand px-2.5 py-1 text-brand-ink">
-              Filtradas: {filteredCount}
+        <div className="flex items-center gap-2.5">
+          <h2 id="tasks-heading" className="text-lg font-bold tracking-tight text-heading">
+            Tareas
+          </h2>
+          <div className="flex flex-wrap gap-1.5 text-[11px] font-semibold">
+            <span className="liquid-glass-subtle rounded-full px-2.5 py-0.5 text-heading">
+              {counts.pending} pend.
             </span>
-          )}
+            <span className="liquid-glass-subtle rounded-full px-2.5 py-0.5 text-muted">
+              {counts.completed} comp.
+            </span>
+            {hasActiveFilters && filteredCount !== undefined && (
+              <span className="rounded-full bg-brand px-2.5 py-0.5 text-brand-ink">
+                {filteredCount} filt.
+              </span>
+            )}
+          </div>
         </div>
+
+        <button
+          type="button"
+          className={`liquid-pill min-h-9 cursor-pointer rounded-full px-3 py-1 text-xs font-semibold ${
+            filtersOpen ? 'border-brand text-brand' : 'text-heading'
+          }`}
+          aria-expanded={filtersOpen}
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          {filtersOpen ? 'Ocultar filtros' : 'Filtros'}
+        </button>
       </div>
 
       {/* Create Task Form */}
-      <form className="mb-5 flex flex-col gap-3" onSubmit={handleCreateSubmit} noValidate>
+      <form className="mb-4 flex flex-col gap-3" onSubmit={handleCreateSubmit} noValidate>
         <div className="flex flex-col gap-2 sm:flex-row">
           <label htmlFor="new-task-title" className="sr-only">
             Título de nueva tarea
@@ -304,7 +371,7 @@ export function TasksPanel({
               setFormError(null);
             }}
             placeholder="Agregar tarea enfocada..."
-            className="flex-1 rounded-lg border border-edge bg-canvas px-3.5 py-2 text-sm text-heading placeholder:text-muted"
+            className="liquid-glass-subtle min-h-10 flex-1 rounded-2xl px-3.5 py-2 text-sm text-heading placeholder:text-muted"
           />
           <div className="flex gap-2">
             <select
@@ -316,7 +383,7 @@ export function TasksPanel({
                   setNewPriority(val);
                 }
               }}
-              className="rounded-lg border border-edge bg-canvas px-2.5 py-2 text-xs font-semibold text-heading"
+              className="liquid-glass-subtle min-h-10 rounded-2xl px-3 py-2 text-xs font-semibold text-heading"
             >
               <option value="LOW">Baja</option>
               <option value="MEDIUM">Media</option>
@@ -324,14 +391,14 @@ export function TasksPanel({
             </select>
             <button
               type="button"
-              className="cursor-pointer rounded-lg border border-edge bg-canvas px-3 py-2 text-xs font-semibold text-ink hover:border-brand"
+              className="liquid-pill min-h-10 cursor-pointer rounded-2xl px-3 py-2 text-xs font-semibold text-ink"
               onClick={() => setShowDetails((v) => !v)}
             >
               {showDetails ? 'Menos' : 'Detalles'}
             </button>
             <button
               type="submit"
-              className="cursor-pointer rounded-lg bg-accent px-4 py-2 text-sm font-bold text-accent-ink transition hover:bg-accent-hover disabled:opacity-55"
+              className="min-h-10 cursor-pointer rounded-2xl bg-accent px-4 py-2 text-sm font-bold text-accent-ink shadow-sm transition hover:bg-accent-hover active:scale-[0.98] disabled:opacity-55"
               disabled={isBusy}
             >
               Agregar
@@ -340,7 +407,7 @@ export function TasksPanel({
         </div>
 
         {showDetails && (
-          <div className="grid grid-cols-1 gap-3 rounded-xl border border-edge bg-canvas p-3.5 sm:grid-cols-2">
+          <div className="liquid-glass-subtle liquid-panel-enter grid grid-cols-1 gap-3 rounded-2xl p-3.5 sm:grid-cols-2">
             <div className="flex flex-col gap-1 sm:col-span-2">
               <label htmlFor="new-task-desc" className="text-xs font-semibold text-heading">
                 Descripción (opcional)
@@ -404,53 +471,54 @@ export function TasksPanel({
         )}
       </form>
 
-      {/* Server Filters, Search & Sort Controls (Phase 6.0) */}
-      <div className="mb-4 flex flex-col gap-2.5 rounded-xl border border-edge bg-canvas p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex gap-1.5" role="tablist" aria-label="Filtrar tareas por estado">
-            {(
-              [
-                ['all', `Todas (${counts.total})`],
-                ['pending', `Pendientes (${counts.pending})`],
-                ['completed', `Completadas (${counts.completed})`],
-              ] as const
-            ).map(([value, label]) => (
+      {/* Filters, Search & Sort Controls */}
+      {filtersOpen && (
+        <div className="liquid-glass-subtle liquid-panel-enter mb-4 flex flex-col gap-2.5 rounded-2xl p-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filtrar tareas por estado">
+              {(
+                [
+                  ['all', `Todas (${counts.total})`],
+                  ['pending', `Pendientes (${counts.pending})`],
+                  ['completed', `Completadas (${counts.completed})`],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeStatus === value}
+                  onClick={() => onQueryChange({ ...query, status: value })}
+                  className={`cursor-pointer rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    activeStatus === value
+                      ? 'bg-brand text-brand-ink'
+                      : 'liquid-pill text-ink'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {hasActiveFilters && (
               <button
-                key={value}
                 type="button"
-                role="tab"
-                aria-selected={activeStatus === value}
-                onClick={() => onQueryChange({ ...query, status: value })}
-                className={`cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                  activeStatus === value
-                    ? 'bg-brand text-brand-ink'
-                    : 'bg-elevated text-ink hover:border-brand'
-                }`}
+                className="cursor-pointer rounded-full px-2.5 py-1 text-xs font-semibold text-brand hover:bg-elevated/60"
+                onClick={() => {
+                  setSearchDraft('');
+                  setSearchError(null);
+                  onQueryChange({ status: 'all', sortBy: query.sortBy, sortOrder: query.sortOrder });
+                }}
               >
-                {label}
+                Limpiar filtros
               </button>
-            ))}
+            )}
           </div>
 
-          {hasActiveFilters && (
-            <button
-              type="button"
-              className="cursor-pointer rounded-lg px-2 py-1 text-xs font-semibold text-brand hover:bg-elevated"
-              onClick={() => {
-                setSearchDraft('');
-                setSearchError(null);
-                onQueryChange({ status: 'all', sortBy: query.sortBy, sortOrder: query.sortOrder });
-              }}
-            >
-              Limpiar filtros
-            </button>
-          )}
-        </div>
-
-        <form className="flex flex-wrap gap-2" onSubmit={handleSearchSubmit} noValidate>
-          <label htmlFor="task-search-input" className="sr-only">
-            Buscar tareas en el servidor
-          </label>
+          <form className="flex flex-wrap gap-2" onSubmit={handleSearchSubmit} noValidate>
+            <label htmlFor="task-search-input" className="sr-only">
+              Buscar tareas
+            </label>
           <input
             id="task-search-input"
             type="search"
@@ -476,7 +544,7 @@ export function TasksPanel({
             onChange={(e) => {
               const val = e.target.value;
               const next = { ...query };
-              if (val === 'LOW' || val === 'MEDIUM' || val === 'HIGH') {
+              if (val === 'LOW' || val === 'MEDIUM' || val === 'HIGH' || val === 'CRITICAL') {
                 next.priority = val;
               } else {
                 delete next.priority;
@@ -486,6 +554,7 @@ export function TasksPanel({
             className="rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-xs text-heading"
           >
             <option value="">Prioridad: Todas</option>
+            <option value="CRITICAL">Crítica</option>
             <option value="HIGH">Alta</option>
             <option value="MEDIUM">Media</option>
             <option value="LOW">Baja</option>
@@ -570,24 +639,27 @@ export function TasksPanel({
             {searchError}
           </p>
         )}
-      </div>
+        </div>
+      )}
 
       {/* Task List */}
       {tasks.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-edge bg-canvas px-4 py-6 text-center text-xs text-muted">
+        <p className="liquid-glass-subtle rounded-2xl border-dashed px-4 py-8 text-center text-xs text-muted">
           No hay tareas en esta vista.
         </p>
       ) : (
         <ul className="flex flex-col gap-2.5">
           {tasks.map((task) => {
             const priorityMeta = PRIORITY_STYLES[task.effectivePriority];
-            const dueDisplay = formatDueAtDisplay(task.dueAt);
+            const dueDisplay = dueLabelsById.get(task.id) ?? null;
             const isEditing = editingId === task.id;
+            const isExpanded = expandedTaskId === task.id;
 
             return (
               <li
                 key={task.id}
-                className="rounded-xl border border-edge bg-canvas p-3.5 transition"
+                ref={isExpanded ? expandedTaskRef : undefined}
+                className="liquid-glass-subtle liquid-task-enter rounded-2xl p-3.5 transition-all duration-300 ease-out hover:border-brand/60"
               >
                 {isEditing ? (
                   <form
@@ -674,8 +746,8 @@ export function TasksPanel({
                     </div>
                   </form>
                 ) : (
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-3">
                       <input
                         type="checkbox"
                         checked={task.completed}
@@ -683,71 +755,90 @@ export function TasksPanel({
                         aria-label={`Marcar "${task.title}" como ${
                           task.completed ? 'pendiente' : 'completada'
                         }`}
-                        className="mt-1 h-4 w-4 cursor-pointer accent-accent"
+                        className="h-4 w-4 shrink-0 cursor-pointer accent-accent"
                       />
-                      <div className="flex flex-col gap-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`text-sm font-semibold ${
-                              task.completed ? 'line-through text-muted' : 'text-heading'
-                            }`}
-                          >
-                            {task.title}
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${priorityMeta.className}`}
-                          >
-                            {priorityMeta.label}
-                          </span>
-                          {dueDisplay && (
-                            <span className="text-[11px] text-muted">Vence: {dueDisplay}</span>
-                          )}
-                        </div>
-
-                        {task.description && (
-                          <p className="whitespace-pre-line text-xs text-muted">
-                            {task.description}
-                          </p>
-                        )}
-
-                        {task.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-0.5">
-                            {task.tags.map((tag) => (
-                              <button
-                                key={tag}
-                                type="button"
-                                onClick={() => onQueryChange({ ...query, tag })}
-                                className="cursor-pointer rounded-full bg-elevated px-2 py-0.5 text-[10px] font-semibold text-ink hover:border-brand"
-                              >
-                                #{tag}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        {task.priorityReason && (
-                          <p className="text-[11px] font-medium text-brand">
-                            {task.priorityReason}
-                          </p>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        aria-expanded={isExpanded}
+                        aria-controls={`task-extra-${task.id}`}
+                        onClick={() =>
+                          setExpandedTaskId((prev) => (prev === task.id ? null : task.id))
+                        }
+                        className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 text-left sm:cursor-default"
+                      >
+                        <span
+                          className={`min-w-0 break-words text-sm font-semibold ${
+                            task.completed ? 'line-through text-muted' : 'text-heading'
+                          }`}
+                        >
+                          {task.title}
+                        </span>
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${priorityMeta.className}`}
+                        >
+                          {priorityMeta.label}
+                        </span>
+                      </button>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        className="cursor-pointer rounded-lg px-2 py-1 text-xs font-semibold text-ink hover:bg-elevated"
-                        onClick={() => startEdit(task)}
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        className="cursor-pointer rounded-lg px-2 py-1 text-xs font-semibold text-danger hover:bg-danger-bg"
-                        onClick={() => void onDeleteTask(task.id)}
-                      >
-                        Eliminar
-                      </button>
+                    <div
+                      id={`task-extra-${task.id}`}
+                      data-open={isExpanded ? 'true' : 'false'}
+                      className="task-mobile-accordion"
+                    >
+                      <div className="liquid-accordion-inner">
+                        <div className="mt-2.5 flex flex-wrap items-start justify-between gap-3 border-t border-edge/40 pt-2.5 pl-7">
+                          <div className="flex min-w-0 flex-1 flex-col gap-1">
+                            {dueDisplay && (
+                              <span className="text-[11px] text-muted">Vence: {dueDisplay}</span>
+                            )}
+
+                            {task.description && (
+                              <p className="whitespace-pre-line text-xs text-muted">
+                                {task.description}
+                              </p>
+                            )}
+
+                            {task.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-0.5">
+                                {task.tags.map((tag) => (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => onQueryChange({ ...query, tag })}
+                                    className="cursor-pointer rounded-full bg-elevated px-2 py-0.5 text-[10px] font-semibold text-ink hover:border-brand"
+                                  >
+                                    #{tag}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {task.priorityReason && (
+                              <p className="text-[11px] font-medium text-brand">
+                                {task.priorityReason}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold text-ink hover:bg-elevated"
+                              onClick={() => startEdit(task)}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold text-danger hover:bg-danger-bg"
+                              onClick={() => void onDeleteTask(task.id)}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -758,4 +849,4 @@ export function TasksPanel({
       )}
     </section>
   );
-}
+});

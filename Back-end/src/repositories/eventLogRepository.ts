@@ -51,6 +51,14 @@ export class EventLogRepository {
   >;
   private readonly stmtFindByEventId: Database.Statement<[string], EventLogRow>;
   private readonly stmtFindByEventIdForUser: Database.Statement<[string, string], EventLogRow>;
+  private readonly stmtFindLatestForEntityForUser: Database.Statement<
+    [string, EventEntityType, string, string],
+    EventLogRow
+  >;
+  private readonly stmtFindLatestForEntityActionForUser: Database.Statement<
+    [string, EventEntityType, string, string, string],
+    EventLogRow
+  >;
   private readonly stmtListByUser: Database.Statement<[string, number], EventLogRow>;
 
   constructor(private readonly db: AppDatabase) {
@@ -69,6 +77,26 @@ export class EventLogRepository {
       `SELECT id, event_id, user_id, entity_type, entity_id,
               event_type, payload_json, client_timestamp, server_timestamp
        FROM event_logs WHERE event_id = ? AND user_id = ?`
+    );
+    this.stmtFindLatestForEntityForUser = this.db.prepare(
+      `SELECT id, event_id, user_id, entity_type, entity_id,
+              event_type, payload_json, client_timestamp, server_timestamp
+       FROM event_logs
+       WHERE user_id = ? AND entity_type = ? AND entity_id = ? AND event_type = ?
+       ORDER BY server_timestamp DESC, rowid DESC
+       LIMIT 1`
+    );
+    this.stmtFindLatestForEntityActionForUser = this.db.prepare(
+      `SELECT id, event_id, user_id, entity_type, entity_id,
+              event_type, payload_json, client_timestamp, server_timestamp
+       FROM event_logs
+       WHERE user_id = ?
+         AND entity_type = ?
+         AND entity_id = ?
+         AND event_type = ?
+         AND json_extract(payload_json, '$.action') = ?
+       ORDER BY server_timestamp DESC, rowid DESC
+       LIMIT 1`
     );
     this.stmtListByUser = this.db.prepare(
       `SELECT id, event_id, user_id, entity_type, entity_id,
@@ -125,6 +153,33 @@ export class EventLogRepository {
 
   findByEventIdForUser(eventId: string, userId: string): EventLog | null {
     const row = this.stmtFindByEventIdForUser.get(eventId, userId);
+    return row ? mapEventLog(row) : null;
+  }
+
+  findLatestForEntityForUser(
+    userId: string,
+    entityType: EventEntityType,
+    entityId: string,
+    eventType: string
+  ): EventLog | null {
+    const row = this.stmtFindLatestForEntityForUser.get(userId, entityType, entityId, eventType);
+    return row ? mapEventLog(row) : null;
+  }
+
+  findLatestForEntityActionForUser(
+    userId: string,
+    entityType: EventEntityType,
+    entityId: string,
+    eventType: string,
+    action: string
+  ): EventLog | null {
+    const row = this.stmtFindLatestForEntityActionForUser.get(
+      userId,
+      entityType,
+      entityId,
+      eventType,
+      action
+    );
     return row ? mapEventLog(row) : null;
   }
 

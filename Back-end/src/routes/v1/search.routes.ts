@@ -1,6 +1,7 @@
 import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { AppError } from '../../errors/AppError.js';
+import { nonNilUuidSchema, safeSingleLineTextSchema } from '../../security/validators.js';
 import type { SearchService } from '../../services/searchService.js';
 
 const engineSchema = z.enum(['google', 'wikipedia', 'stackoverflow']);
@@ -16,7 +17,7 @@ const queryBooleanSchema = z.preprocess((val) => {
 }, z.boolean());
 
 const searchQuerySchema = z.object({
-  q: z.string().trim().min(1).max(500),
+  q: safeSingleLineTextSchema(1, 500, 'Search query'),
   engine: engineSchema.default('wikipedia'),
   limit: z.coerce.number().int().min(1).max(20).default(10),
   lang: z
@@ -37,12 +38,13 @@ const clearHistoryQuerySchema = z.object({
 });
 
 const historyIdParamSchema = z.object({
-  id: z.string().uuid(),
+  id: nonNilUuidSchema,
 });
 
 export interface SearchRouterDeps {
   searchService: SearchService;
   authenticate: RequestHandler;
+  searchLimiter?: RequestHandler;
 }
 
 function getAuthenticatedUserId(req: Express.Request): string {
@@ -52,7 +54,11 @@ function getAuthenticatedUserId(req: Express.Request): string {
   return req.auth.user.id;
 }
 
-export function createSearchRouter({ searchService, authenticate }: SearchRouterDeps): Router {
+export function createSearchRouter({
+  searchService,
+  authenticate,
+  searchLimiter,
+}: SearchRouterDeps): Router {
   const router = Router();
   router.use(authenticate);
 
@@ -106,7 +112,7 @@ export function createSearchRouter({ searchService, authenticate }: SearchRouter
     }
   });
 
-  router.get('/', async (req, res, next) => {
+  const handleSearch: RequestHandler = async (req, res, next) => {
     try {
       const userId = getAuthenticatedUserId(req);
       const params = searchQuerySchema.parse(req.query);
@@ -124,7 +130,13 @@ export function createSearchRouter({ searchService, authenticate }: SearchRouter
     } catch (err) {
       next(err);
     }
-  });
+  };
+
+  if (searchLimiter) {
+    router.get('/', searchLimiter, handleSearch);
+  } else {
+    router.get('/', handleSearch);
+  }
 
   return router;
 }

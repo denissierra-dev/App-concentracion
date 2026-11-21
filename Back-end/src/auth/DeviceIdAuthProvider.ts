@@ -1,22 +1,21 @@
 import type { Request } from 'express';
-import { z } from 'zod';
 import type { UserRepository } from '../repositories/userRepository.js';
+import { nonNilUuidSchema } from '../security/validators.js';
 import type { AuthContext, AuthProvider } from './AuthProvider.js';
-
-const uuidSchema = z.string().uuid();
 
 /**
  * Extracts deviceId from `x-device-id` header or `Authorization: Device <uuid>`.
  */
 export function extractDeviceId(req: Request): string | null {
-  const headerValue = req.header('x-device-id');
+  const headerValue = req.header('x-device-id')?.trim();
   if (headerValue) {
-    return headerValue.trim();
+    return headerValue;
   }
 
   const authHeader = req.header('authorization');
   if (authHeader && authHeader.toLowerCase().startsWith('device ')) {
-    return authHeader.slice(7).trim();
+    const token = authHeader.slice(7).trim();
+    return token || null;
   }
 
   return null;
@@ -33,7 +32,7 @@ export class DeviceIdAuthProvider implements AuthProvider {
       return null;
     }
 
-    const parsed = uuidSchema.safeParse(rawDeviceId);
+    const parsed = nonNilUuidSchema.safeParse(rawDeviceId);
     if (!parsed.success) {
       return null;
     }

@@ -3,10 +3,35 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   auth_provider TEXT NOT NULL,
   external_id TEXT NOT NULL,
+  username TEXT,
+  username_normalized TEXT,
+  email TEXT,
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  password_hash TEXT,
+  display_name TEXT,
+  avatar_url TEXT,
+  google_sub TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   UNIQUE(auth_provider, external_id)
 );
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  provider TEXT NOT NULL,
+  persistent INTEGER NOT NULL DEFAULT 0,
+  device_label TEXT,
+  user_agent TEXT,
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, revoked_at, expires_at);
 
 CREATE TABLE IF NOT EXISTS preferences (
   user_id TEXT PRIMARY KEY,
@@ -56,6 +81,7 @@ CREATE TABLE IF NOT EXISTS cycles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cycles_session ON cycles(session_id, cycle_index);
+CREATE INDEX IF NOT EXISTS idx_cycles_user_completed ON cycles(user_id, completed_at);
 
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
@@ -123,4 +149,18 @@ CREATE TABLE IF NOT EXISTS search_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_search_history_user_time ON search_history(user_id, created_at DESC);
+`;
+
+export const POST_MIGRATION_INDEXES_SQL = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_norm
+  ON users(username_normalized)
+  WHERE username_normalized IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub
+  ON users(google_sub)
+  WHERE google_sub IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_password_email
+  ON users(email)
+  WHERE password_hash IS NOT NULL AND email IS NOT NULL;
 `;

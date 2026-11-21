@@ -2,22 +2,28 @@ import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { AppError } from '../../errors/AppError.js';
 import type { TaskRepository } from '../../repositories/taskRepository.js';
+import {
+  nonNilUuidSchema,
+  safeMultilineTextSchema,
+  safeSingleLineTextSchema,
+} from '../../security/validators.js';
 import type { PriorityRecalcQueue } from '../../services/priorityQueue.js';
 import type { TaskService } from '../../services/taskService.js';
 
 const taskIdParamSchema = z.object({
-  id: z.string().uuid(),
+  id: nonNilUuidSchema,
 });
 
 const manualPrioritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 const effectivePriorityFilterSchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
-const taskTagsSchema = z.array(z.string().trim().min(1).max(32)).max(10);
+const taskTagSchema = safeSingleLineTextSchema(1, 32, 'Tag');
+const taskTagsSchema = z.array(taskTagSchema).max(10);
 
 const listTasksQuerySchema = z.object({
   status: z.enum(['all', 'pending', 'completed']).optional().default('all'),
   priority: effectivePriorityFilterSchema.optional(),
-  tag: z.string().trim().min(1).max(32).optional(),
-  search: z.string().trim().min(1).max(100).optional(),
+  tag: taskTagSchema.optional(),
+  search: safeSingleLineTextSchema(1, 100, 'Search filter').optional(),
   overdue: z
     .enum(['true', 'false'])
     .transform((v) => v === 'true')
@@ -34,25 +40,25 @@ const listTasksQuerySchema = z.object({
 });
 
 const createTaskSchema = z.object({
-  id: z.string().uuid().optional(),
-  title: z.string().trim().min(1).max(200),
-  description: z.string().trim().max(2000).nullable().optional(),
+  id: nonNilUuidSchema.optional(),
+  title: safeSingleLineTextSchema(1, 200, 'Title'),
+  description: safeMultilineTextSchema(2000, 'Description').nullable().optional(),
   userPriority: manualPrioritySchema.optional(),
   tags: taskTagsSchema.optional(),
   dueAt: z.number().int().positive().nullable().optional(),
-  eventId: z.string().uuid().optional(),
+  eventId: nonNilUuidSchema.optional(),
   clientTimestamp: z.number().int().positive().optional(),
 });
 
 const updateTaskSchema = z
   .object({
-    title: z.string().trim().min(1).max(200).optional(),
-    description: z.string().trim().max(2000).nullable().optional(),
+    title: safeSingleLineTextSchema(1, 200, 'Title').optional(),
+    description: safeMultilineTextSchema(2000, 'Description').nullable().optional(),
     completed: z.boolean().optional(),
     userPriority: manualPrioritySchema.optional(),
     tags: taskTagsSchema.optional(),
     dueAt: z.number().int().positive().nullable().optional(),
-    eventId: z.string().uuid().optional(),
+    eventId: nonNilUuidSchema.optional(),
     clientTimestamp: z.number().int().positive().optional(),
   })
   .refine(
@@ -68,7 +74,7 @@ const updateTaskSchema = z
 
 const deleteTaskSchema = z
   .object({
-    eventId: z.string().uuid().optional(),
+    eventId: nonNilUuidSchema.optional(),
     clientTimestamp: z.number().int().positive().optional(),
   })
   .optional()

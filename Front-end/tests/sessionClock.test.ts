@@ -83,6 +83,21 @@ describe('Local Session Clock Projection (Back-end First)', () => {
     expect(previewBreakRules(25).shortBreakMin).toBe(5);
     expect(previewBreakRules(40).shortBreakMin).toBe(5);
     expect(previewBreakRules(45).shortBreakMin).toBe(10);
+
+    const custom = previewBreakRules(25, 3, 8, 25);
+    expect(custom.shortBreakMin).toBe(8);
+    expect(custom.longBreakMin).toBe(25);
+    expect(custom.cyclesBeforeLongBreak).toBe(3);
+    expect(custom.isCustomShortBreak).toBe(true);
+
+    // Server rule: long_break = max(longBreakMin, 2 * short_break)
+    const enforcedOnExtendedFocus = previewBreakRules(60, 4, 5, 10);
+    expect(enforcedOnExtendedFocus.shortBreakMin).toBe(10);
+    expect(enforcedOnExtendedFocus.longBreakMin).toBe(20);
+
+    const enforcedOnCustomShort = previewBreakRules(25, 4, 35, 50);
+    expect(enforcedOnCustomShort.shortBreakMin).toBe(35);
+    expect(enforcedOnCustomShort.longBreakMin).toBe(70);
   });
 
   it('keeps active session and advances phase on offline non-final PHASE_SKIPPED', () => {

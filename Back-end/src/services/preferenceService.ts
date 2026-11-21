@@ -15,7 +15,7 @@ export const preferencePatchSchema = z
       .max(SESSION_LIMITS.MAX_FOCUS_MIN)
       .optional(),
     shortBreakMin: z.number().int().min(1).max(60).optional(),
-    longBreakMin: z.number().int().min(5).max(60).optional(),
+    longBreakMin: z.number().int().min(5).max(120).optional(),
     cyclesBeforeLongBreak: z
       .number()
       .int()
@@ -89,12 +89,20 @@ export class PreferenceService {
         }
       }
 
+      const current = this.deps.userRepo.ensurePreferences(params.userId, nowMs);
+      const nextShortBreakMin = params.patch.shortBreakMin ?? current.shortBreakMin;
+      const candidateLongBreakMin = params.patch.longBreakMin ?? current.longBreakMin;
+      const effectiveLongBreakMin =
+        params.patch.shortBreakMin !== undefined || params.patch.longBreakMin !== undefined
+          ? Math.max(candidateLongBreakMin, nextShortBreakMin * 2)
+          : undefined;
+
       const updated = this.deps.userRepo.updatePreferences(
         params.userId,
         {
           focusDurationMin: params.patch.focusDurationMin,
           shortBreakMin: params.patch.shortBreakMin,
-          longBreakMin: params.patch.longBreakMin,
+          longBreakMin: effectiveLongBreakMin,
           cyclesBeforeLongBreak: params.patch.cyclesBeforeLongBreak,
           volumeFocus: params.patch.volumeFocus,
           volumeBreak: params.patch.volumeBreak,

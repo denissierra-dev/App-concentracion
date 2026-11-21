@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import {
   formatDurationMs,
   getPhaseLabel,
@@ -15,13 +15,14 @@ interface TimerDisplayProps {
   onSkip: () => Promise<void>;
   onEnd: () => Promise<void>;
   onReset: () => Promise<void>;
-  onSyncState: () => Promise<void>;
+  onSyncState?: () => Promise<void>;
+  onOpenTimeline?: () => void;
 }
 
 const RING_RADIUS = 108;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-export function TimerDisplay({
+export const TimerDisplay = memo(function TimerDisplay({
   session,
   snapshot,
   isBusy,
@@ -30,7 +31,7 @@ export function TimerDisplay({
   onSkip,
   onEnd,
   onReset,
-  onSyncState,
+  onOpenTimeline,
 }: TimerDisplayProps) {
   const [confirmReset, setConfirmReset] = useState(false);
 
@@ -54,54 +55,60 @@ export function TimerDisplay({
 
   return (
     <section
-      className="rounded-2xl border border-edge bg-surface p-6 shadow-sm"
+      className="liquid-glass liquid-stage-enter rounded-3xl p-6 sm:p-8"
       aria-label="Cronómetro de concentración"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <span
-            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${phaseBadgeClass}`}
+            className={`inline-flex items-center rounded-full px-3.5 py-1 text-xs font-semibold shadow-sm ${phaseBadgeClass}`}
           >
             {phase ? getPhaseLabel(phase.phaseType) : 'Sesión finalizada'}
           </span>
           {phase && (
-            <span className="inline-flex items-center rounded-full bg-elevated px-3 py-1 text-xs font-semibold text-ink">
+            <span className="liquid-glass-subtle inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-ink">
               Ciclo {phase.cycleNumber} / {totalCycles}
             </span>
           )}
           {session.status === 'paused' && (
-            <span className="inline-flex items-center rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-ink">
+            <span className="inline-flex items-center rounded-full bg-accent px-3 py-1 text-xs font-bold text-accent-ink">
               En pausa
             </span>
           )}
         </div>
 
-        <button
-          type="button"
-          className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-semibold text-ink transition hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-55"
-          onClick={onSyncState}
-          disabled={isBusy}
-          title="Re-sincronizar estado autoritativo con el servidor"
-        >
-          v{session.version} · Reconciliar
-        </button>
+        {onOpenTimeline && (
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className="liquid-pill cursor-pointer rounded-full px-3 py-1 text-xs font-semibold text-heading"
+              onClick={onOpenTimeline}
+            >
+              Fases
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="relative mx-auto my-6 h-60 w-60">
+      <div className="liquid-ring-enter relative mx-auto my-7 h-60 w-60 sm:my-8 sm:h-68 sm:w-68">
+        <div
+          className="liquid-glass-subtle pointer-events-none absolute inset-4 rounded-full"
+          aria-hidden="true"
+        />
         <svg
-          className="h-full w-full -rotate-90"
+          className="relative h-full w-full -rotate-90"
           viewBox="0 0 240 240"
           role="img"
           aria-label={`Tiempo restante ${formatDurationMs(snapshot.remainingMs)}`}
         >
           <circle
-            className="fill-none stroke-elevated stroke-[12]"
+            className="fill-none stroke-elevated/60 stroke-[10]"
             cx="120"
             cy="120"
             r={RING_RADIUS}
           />
           <circle
-            className={`fill-none stroke-[12] transition-[stroke-dashoffset] duration-200 ease-linear ${ringStrokeClass}`}
+            className={`fill-none stroke-[10] transition-[stroke-dashoffset] duration-200 ease-linear ${ringStrokeClass}`}
             cx="120"
             cy="120"
             r={RING_RADIUS}
@@ -112,10 +119,10 @@ export function TimerDisplay({
         </svg>
 
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-          <span className="text-5xl font-extrabold tracking-tight tabular-nums text-heading">
+          <span className="text-5xl font-extrabold tracking-tight tabular-nums text-heading sm:text-6xl">
             {formatDurationMs(snapshot.remainingMs)}
           </span>
-          <span className="mt-1 text-xs text-muted">
+          <span className="mt-1.5 text-xs font-medium text-muted">
             {phase
               ? `Fase ${snapshot.effectiveIndex + 1} de ${snapshot.totalPhases}`
               : 'Plan completado'}
@@ -127,7 +134,7 @@ export function TimerDisplay({
         {session.status === 'active' && !snapshot.isPlanCompleted && (
           <button
             type="button"
-            className="cursor-pointer rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-brand-ink transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-55"
+            className="min-h-11 cursor-pointer rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-brand-ink shadow-sm transition hover:bg-brand-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55"
             onClick={onPause}
             disabled={isBusy}
           >
@@ -138,7 +145,7 @@ export function TimerDisplay({
         {session.status === 'paused' && (
           <button
             type="button"
-            className="cursor-pointer rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-accent-ink transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-55"
+            className="min-h-11 cursor-pointer rounded-full bg-accent px-6 py-2.5 text-sm font-bold text-accent-ink shadow-sm transition hover:bg-accent-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55"
             onClick={onResume}
             disabled={isBusy}
           >
@@ -149,7 +156,7 @@ export function TimerDisplay({
         {!snapshot.isPlanCompleted && (
           <button
             type="button"
-            className="cursor-pointer rounded-xl border border-edge bg-elevated px-4 py-2.5 text-sm font-semibold text-heading transition hover:border-brand disabled:cursor-not-allowed disabled:opacity-55"
+            className="liquid-pill min-h-11 cursor-pointer rounded-full px-4 py-2.5 text-sm font-semibold text-heading disabled:cursor-not-allowed disabled:opacity-55"
             onClick={onSkip}
             disabled={isBusy}
           >
@@ -159,7 +166,7 @@ export function TimerDisplay({
 
         <button
           type="button"
-          className="cursor-pointer rounded-xl border border-edge bg-elevated px-4 py-2.5 text-sm font-semibold text-heading transition hover:border-brand disabled:cursor-not-allowed disabled:opacity-55"
+          className="liquid-pill min-h-11 cursor-pointer rounded-full px-4 py-2.5 text-sm font-semibold text-heading disabled:cursor-not-allowed disabled:opacity-55"
           onClick={onEnd}
           disabled={isBusy}
         >
@@ -169,17 +176,21 @@ export function TimerDisplay({
         {!confirmReset ? (
           <button
             type="button"
-            className="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-semibold text-danger transition hover:bg-danger-bg disabled:cursor-not-allowed disabled:opacity-55"
+            className="min-h-11 cursor-pointer rounded-full px-4 py-2.5 text-sm font-semibold text-danger transition hover:bg-danger-bg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55"
             onClick={() => setConfirmReset(true)}
             disabled={isBusy}
           >
             Reiniciar
           </button>
         ) : (
-          <div className="inline-flex items-center gap-2" role="group" aria-label="Confirmar reinicio">
+          <div
+            className="liquid-glass-subtle inline-flex items-center gap-2 rounded-full px-2 py-1"
+            role="group"
+            aria-label="Confirmar reinicio"
+          >
             <button
               type="button"
-              className="cursor-pointer rounded-lg bg-danger px-3 py-1.5 text-xs font-semibold text-danger-ink disabled:cursor-not-allowed disabled:opacity-55"
+              className="min-h-9 cursor-pointer rounded-full bg-danger px-3.5 py-1.5 text-xs font-semibold text-danger-ink disabled:cursor-not-allowed disabled:opacity-55"
               onClick={async () => {
                 setConfirmReset(false);
                 await onReset();
@@ -190,7 +201,7 @@ export function TimerDisplay({
             </button>
             <button
               type="button"
-              className="cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold text-ink hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-55"
+              className="min-h-9 cursor-pointer rounded-full px-3 py-1.5 text-xs font-semibold text-ink hover:bg-elevated/60 disabled:cursor-not-allowed disabled:opacity-55"
               onClick={() => setConfirmReset(false)}
               disabled={isBusy}
             >
@@ -201,4 +212,4 @@ export function TimerDisplay({
       </div>
     </section>
   );
-}
+});

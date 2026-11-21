@@ -13,3 +13,4 @@ BACKEND-API-CONTRACT.md
 ERRORES-BACKEND.md
 ERRORES-FRONTEND.md
 *.tsbuildinfo
+.vite/

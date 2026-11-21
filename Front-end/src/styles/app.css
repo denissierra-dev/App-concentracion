@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-/* Semantic color tokens aligned with Paleta-colores.md (60-30-10 rule + AA/AAA contrast) */
+/* Semantic color tokens aligned with Paleta-colores.md (60-30-10 rule + AA/AAA contrast)
+   Extended with dynamic Liquid Glass surface, specular, border, and depth variables. */
 
 /* 1. Paleta Blanco y Negro (default light & Sistema light) */
 :root,
@@ -28,6 +29,13 @@
   --danger-text: #ffffff;
   --success: #2d6a4f;
   --success-bg: #d8f3dc;
+  --glass-specular-alpha: 72%;
+  --glass-shadow-alpha: 11%;
+  --glass-shadow-sm-alpha: 8%;
+  --glass-shadow-lg-alpha: 24%;
+  --glass-shadow-color: var(--text-main);
+  --glass-glow-alpha: 16%;
+  --glass-elevated-glow-alpha: 48%;
 }
 
 /* 2. Paleta Negro y Blanco (modo oscuro) */
@@ -55,6 +63,13 @@
   --danger-text: #0a0a0a;
   --success: #95d5b2;
   --success-bg: #153124;
+  --glass-specular-alpha: 7%;
+  --glass-shadow-alpha: 55%;
+  --glass-shadow-sm-alpha: 40%;
+  --glass-shadow-lg-alpha: 70%;
+  --glass-shadow-color: #000000;
+  --glass-glow-alpha: 4%;
+  --glass-elevated-glow-alpha: 16%;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -82,142 +97,218 @@
     --danger-text: #0a0a0a;
     --success: #95d5b2;
     --success-bg: #153124;
+    --glass-specular-alpha: 7%;
+    --glass-shadow-alpha: 55%;
+    --glass-shadow-sm-alpha: 40%;
+    --glass-shadow-lg-alpha: 70%;
+    --glass-shadow-color: #000000;
+    --glass-glow-alpha: 4%;
+    --glass-elevated-glow-alpha: 16%;
   }
 }
 
-/* 3. Paleta Azul (Base: Azul cobalto · Complementario: Naranja) */
+/* 3. Paleta Azul (Zafiro & Ámbar) */
 :root[data-theme='blue'] {
   color-scheme: light;
-  --bg: #d6ecff;
-  --surface: #eef7ff;
-  --surface-elevated: #bde0fe;
-  --border: #5ba8e8;
-  --primary: #1e5fa8;
-  --primary-hover: #154780;
+  --bg: #b7d8fa;
+  --surface: #dbeeff;
+  --surface-elevated: #9ec7f5;
+  --border: #3a86d6;
+  --primary: #164e96;
+  --primary-hover: #0f3a73;
   --primary-text: #ffffff;
-  --text-main: #0b2e5c;
-  --text-body: #0f3568;
-  --text-muted: #2d588a;
-  --accent: #ff9f1c;
-  --accent-hover: #e76f00;
+  --text-main: #072247;
+  --text-body: #0b2e5c;
+  --text-muted: #1e4d86;
+  --accent: #f58a07;
+  --accent-hover: #d97706;
   --accent-text: #0a0a0a;
-  --break-color: #2d6a4f;
+  --break-color: #1b6b4d;
   --break-text: #ffffff;
-  --long-break-color: #6a2c91;
+  --long-break-color: #5a1f82;
   --long-break-text: #ffffff;
   --danger: #a4161a;
-  --danger-bg: #ffe5e5;
+  --danger-bg: #ffd6d6;
   --danger-text: #ffffff;
-  --success: #2d6a4f;
-  --success-bg: #d8f3dc;
+  --success: #14532d;
+  --success-bg: #c6f0d4;
+  --glass-specular-alpha: 48%;
+  --glass-shadow-alpha: 15%;
+  --glass-shadow-sm-alpha: 10%;
+  --glass-shadow-lg-alpha: 26%;
+  --glass-shadow-color: #072247;
+  --glass-glow-alpha: 22%;
+  --glass-elevated-glow-alpha: 52%;
 }
 
-/* 4. Paleta Morado (Base: Púrpura real · Complementario: Amarillo) */
+/* 4. Paleta Morado (Amatista Real & Oro) */
 :root[data-theme='purple'] {
   color-scheme: light;
-  --bg: #e4d4f7;
-  --surface: #f4ecfd;
-  --surface-elevated: #d8bfef;
-  --border: #b57edc;
-  --primary: #6a2c91;
-  --primary-hover: #532073;
+  --bg: #cbb2f0;
+  --surface: #e6d6fb;
+  --surface-elevated: #b996eb;
+  --border: #8b52c9;
+  --primary: #5a1f82;
+  --primary-hover: #431463;
   --primary-text: #ffffff;
-  --text-main: #3b1259;
-  --text-body: #3b1259;
-  --text-muted: #5f3a7a;
-  --accent: #f2e28b;
-  --accent-hover: #e6d05c;
-  --accent-text: #3b1259;
-  --break-color: #2d6a4f;
+  --text-main: #2a0a42;
+  --text-body: #381057;
+  --text-muted: #552778;
+  --accent: #f0c419;
+  --accent-hover: #d9ad0b;
+  --accent-text: #240838;
+  --break-color: #1b6b4d;
   --break-text: #ffffff;
-  --long-break-color: #6a2c91;
+  --long-break-color: #431463;
   --long-break-text: #ffffff;
-  --danger: #a4161a;
-  --danger-bg: #ffe5e5;
+  --danger: #9e131e;
+  --danger-bg: #ffd6da;
   --danger-text: #ffffff;
-  --success: #2d6a4f;
-  --success-bg: #d8f3dc;
+  --success: #14532d;
+  --success-bg: #c6f0d4;
+  --glass-specular-alpha: 46%;
+  --glass-shadow-alpha: 16%;
+  --glass-shadow-sm-alpha: 10%;
+  --glass-shadow-lg-alpha: 28%;
+  --glass-shadow-color: #2a0a42;
+  --glass-glow-alpha: 22%;
+  --glass-elevated-glow-alpha: 52%;
 }
 
-/* 5. Paleta Roja (Base: Rojo carmesí · Complementario: Verde) */
+/* 5. Paleta Roja (Rubí Carmesí & Esmeralda) */
 :root[data-theme='red'] {
   color-scheme: light;
-  --bg: #ff8a7a;
-  --surface: #fff2f0;
-  --surface-elevated: #ffc7bf;
-  --border: #e63946;
-  --primary: #a4161a;
-  --primary-hover: #801114;
+  --bg: #f2a2a8;
+  --surface: #fbd5d8;
+  --surface-elevated: #e88991;
+  --border: #c92a37;
+  --primary: #9e131e;
+  --primary-hover: #7a0c15;
   --primary-text: #ffffff;
-  --text-main: #660708;
-  --text-body: #660708;
-  --text-muted: #781719;
-  --accent: #95d5b2;
-  --accent-hover: #74c69d;
-  --accent-text: #1b4332;
-  --break-color: #2d6a4f;
+  --text-main: #4d040a;
+  --text-body: #5c070e;
+  --text-muted: #7d161e;
+  --accent: #1e6f4c;
+  --accent-hover: #16573b;
+  --accent-text: #ffffff;
+  --break-color: #1e6f4c;
   --break-text: #ffffff;
-  --long-break-color: #660708;
+  --long-break-color: #6b0811;
   --long-break-text: #ffffff;
-  --danger: #660708;
-  --danger-bg: #ffe3e3;
+  --danger: #5c040b;
+  --danger-bg: #ffd4d8;
   --danger-text: #ffffff;
-  --success: #1b4332;
-  --success-bg: #d8f3dc;
+  --success: #14532d;
+  --success-bg: #c6f0d4;
+  --glass-specular-alpha: 42%;
+  --glass-shadow-alpha: 16%;
+  --glass-shadow-sm-alpha: 10%;
+  --glass-shadow-lg-alpha: 28%;
+  --glass-shadow-color: #4d040a;
+  --glass-glow-alpha: 20%;
+  --glass-elevated-glow-alpha: 48%;
 }
 
-/* 6. Paleta Naranja (Base: Naranja mandarina · Complementario: Azul) */
+/* 6. Paleta Naranja (Ámbar Terracota & Cobalto) */
 :root[data-theme='orange'] {
   color-scheme: light;
-  --bg: #ffd8a8;
-  --surface: #fff3e3;
-  --surface-elevated: #ffe3be;
-  --border: #ff9f1c;
-  --primary: #e76f00;
-  --primary-hover: #c95f00;
-  --primary-text: #1a0a00;
-  --text-main: #b34700;
-  --text-body: #8f3700;
-  --text-muted: #9e4000;
-  --accent: #5ba8e8;
-  --accent-hover: #3b8fd4;
-  --accent-text: #0b2e5c;
-  --break-color: #2d6a4f;
+  --bg: #f7b774;
+  --surface: #fde0be;
+  --surface-elevated: #f2a355;
+  --border: #d96600;
+  --primary: #c24d00;
+  --primary-hover: #9c3d00;
+  --primary-text: #ffffff;
+  --text-main: #4f1b00;
+  --text-body: #632300;
+  --text-muted: #853400;
+  --accent: #1d6fb8;
+  --accent-hover: #155794;
+  --accent-text: #ffffff;
+  --break-color: #1b6b4d;
   --break-text: #ffffff;
-  --long-break-color: #1e5fa8;
+  --long-break-color: #164e96;
   --long-break-text: #ffffff;
-  --danger: #a4161a;
-  --danger-bg: #ffe5e5;
+  --danger: #9e131e;
+  --danger-bg: #ffd6d6;
   --danger-text: #ffffff;
-  --success: #2d6a4f;
-  --success-bg: #d8f3dc;
+  --success: #14532d;
+  --success-bg: #c6f0d4;
+  --glass-specular-alpha: 44%;
+  --glass-shadow-alpha: 15%;
+  --glass-shadow-sm-alpha: 10%;
+  --glass-shadow-lg-alpha: 26%;
+  --glass-shadow-color: #4f1b00;
+  --glass-glow-alpha: 20%;
+  --glass-elevated-glow-alpha: 50%;
 }
 
-/* 7. Paleta Verde (Base: Verde esmeralda · Complementario: Rojo) */
+/* 7. Paleta Verde (Esmeralda Bosque & Coral) */
 :root[data-theme='green'] {
   color-scheme: light;
-  --bg: #d8f3dc;
-  --surface: #f0faf2;
-  --surface-elevated: #bee9c8;
-  --border: #95d5b2;
-  --primary: #2d6a4f;
-  --primary-hover: #1b4332;
+  --bg: #9cd8b3;
+  --surface: #cbedd7;
+  --surface-elevated: #7ec99b;
+  --border: #2d7a56;
+  --primary: #1b5e3f;
+  --primary-hover: #12452d;
   --primary-text: #ffffff;
-  --text-main: #1b4332;
-  --text-body: #1b4332;
-  --text-muted: #2d6a4f;
-  --accent: #e76f51;
-  --accent-hover: #d4573b;
-  --accent-text: #0a0a0a;
-  --break-color: #2d6a4f;
+  --text-main: #0b2e1e;
+  --text-body: #123d29;
+  --text-muted: #1f593e;
+  --accent: #c44127;
+  --accent-hover: #a3321b;
+  --accent-text: #ffffff;
+  --break-color: #1b5e3f;
   --break-text: #ffffff;
-  --long-break-color: #1b4332;
+  --long-break-color: #0b2e1e;
   --long-break-text: #ffffff;
-  --danger: #a4161a;
-  --danger-bg: #ffe5e5;
+  --danger: #9e131e;
+  --danger-bg: #ffd6d6;
   --danger-text: #ffffff;
-  --success: #1b4332;
-  --success-bg: #bee9c8;
+  --success: #0b2e1e;
+  --success-bg: #a7e3bd;
+  --glass-specular-alpha: 46%;
+  --glass-shadow-alpha: 15%;
+  --glass-shadow-sm-alpha: 10%;
+  --glass-shadow-lg-alpha: 26%;
+  --glass-shadow-color: #0b2e1e;
+  --glass-glow-alpha: 20%;
+  --glass-elevated-glow-alpha: 50%;
+}
+
+/* Derived Liquid Glass tokens shared across all themes */
+:root {
+  --glass-bg: color-mix(in srgb, var(--surface) 88%, transparent);
+  --glass-bg-strong: color-mix(in srgb, var(--surface) 95%, transparent);
+  --glass-bg-subtle: color-mix(in srgb, var(--bg) 82%, transparent);
+  --glass-border: color-mix(in srgb, var(--border) 76%, transparent);
+  --glass-specular: color-mix(in srgb, #ffffff var(--glass-specular-alpha), transparent);
+  --glass-shadow:
+    0 12px 36px -14px color-mix(in srgb, var(--glass-shadow-color) var(--glass-shadow-alpha), transparent),
+    0 2px 10px -4px color-mix(in srgb, var(--glass-shadow-color) var(--glass-shadow-sm-alpha), transparent),
+    inset 0 1px 0 var(--glass-specular);
+  --glass-shadow-lg:
+    0 24px 60px -16px color-mix(in srgb, var(--glass-shadow-color) var(--glass-shadow-lg-alpha), transparent),
+    0 4px 16px -6px color-mix(in srgb, var(--glass-shadow-color) var(--glass-shadow-sm-alpha), transparent),
+    inset 0 1px 0 var(--glass-specular);
+  --glass-backdrop:
+    radial-gradient(
+      68rem 44rem at 12% -8%,
+      color-mix(in srgb, var(--primary) var(--glass-glow-alpha), transparent),
+      transparent 65%
+    ),
+    radial-gradient(
+      58rem 40rem at 92% 6%,
+      color-mix(in srgb, var(--accent) var(--glass-glow-alpha), transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      54rem 38rem at 52% 108%,
+      color-mix(in srgb, var(--surface-elevated) var(--glass-elevated-glow-alpha), transparent),
+      transparent 70%
+    ),
+    var(--bg);
 }
 
 @theme inline {
@@ -245,6 +336,243 @@
   --color-success-bg: var(--success-bg);
 }
 
+/* Liquid Glass surface primitives */
+.liquid-canvas {
+  background: var(--glass-backdrop);
+  background-attachment: fixed;
+}
+
+.liquid-glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(20px) saturate(145%);
+  -webkit-backdrop-filter: blur(20px) saturate(145%);
+}
+
+.liquid-glass-strong {
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow-lg);
+  backdrop-filter: blur(26px) saturate(155%);
+  -webkit-backdrop-filter: blur(26px) saturate(155%);
+}
+
+/* 100% solid opaque menu surface for floating dropdowns over forms */
+.liquid-menu-solid {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 22px 48px -10px color-mix(in srgb, var(--glass-shadow-color) 40%, transparent),
+    0 8px 20px -4px color-mix(in srgb, var(--glass-shadow-color) 20%, transparent);
+}
+
+.liquid-glass-subtle {
+  background: var(--glass-bg-subtle);
+  border: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-specular);
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+}
+
+.liquid-pill {
+  background: color-mix(in srgb, var(--surface) 64%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 56%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-specular);
+  backdrop-filter: blur(14px) saturate(135%);
+  -webkit-backdrop-filter: blur(14px) saturate(135%);
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.liquid-pill:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  border-color: var(--primary);
+}
+
+.liquid-pill:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.liquid-backdrop {
+  background: color-mix(in srgb, var(--text-main) 28%, rgba(0, 0, 0, 0.45));
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  animation: glass-fade-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.liquid-modal-panel {
+  animation: glass-modal-in 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.liquid-panel-enter {
+  animation: glass-panel-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.liquid-stage-enter {
+  animation: glass-stage-in 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.liquid-stage-exit {
+  animation: glass-stage-out 460ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.liquid-ring-enter {
+  animation: glass-ring-in 680ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.liquid-task-enter {
+  animation: glass-task-in 440ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.liquid-accordion {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    grid-template-rows 190ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease,
+    transform 190ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.liquid-accordion[data-open='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.liquid-accordion-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Mobile-only collapsible task details; always expanded on tablets/desktops (sm+) */
+.task-mobile-accordion {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition:
+    grid-template-rows 210ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    transform 210ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.task-mobile-accordion[data-open='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+@media (min-width: 640px) {
+  .task-mobile-accordion {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+}
+
+@keyframes glass-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes glass-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes glass-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes glass-stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.986);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes glass-stage-out {
+  from {
+    opacity: 0.72;
+    transform: scale(1);
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.986);
+    filter: blur(2px);
+  }
+}
+
+@keyframes glass-ring-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes glass-task-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.liquid-toast-enter {
+  animation: liquidToastIn 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes liquidToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 /* Swatch preview chips (zero inline style attributes for strict CSP) */
 .theme-swatch-system {
   background: linear-gradient(135deg, #ffffff 50%, #0a0a0a 50%);
@@ -259,24 +587,44 @@
   border: 1px solid #6e6e6e;
 }
 .theme-swatch-blue {
-  background: linear-gradient(135deg, #1e5fa8 60%, #ff9f1c 60%);
-  border: 1px solid #0b2e5c;
+  background: linear-gradient(135deg, #164e96 60%, #f58a07 60%);
+  border: 1px solid #072247;
 }
 .theme-swatch-purple {
-  background: linear-gradient(135deg, #6a2c91 60%, #f2e28b 60%);
-  border: 1px solid #3b1259;
+  background: linear-gradient(135deg, #5a1f82 60%, #f0c419 60%);
+  border: 1px solid #2a0a42;
 }
 .theme-swatch-red {
-  background: linear-gradient(135deg, #e63946 60%, #95d5b2 60%);
-  border: 1px solid #660708;
+  background: linear-gradient(135deg, #9e131e 60%, #1e6f4c 60%);
+  border: 1px solid #4d040a;
 }
 .theme-swatch-orange {
-  background: linear-gradient(135deg, #ff9f1c 60%, #5ba8e8 60%);
-  border: 1px solid #b34700;
+  background: linear-gradient(135deg, #c24d00 60%, #1d6fb8 60%);
+  border: 1px solid #4f1b00;
 }
 .theme-swatch-green {
-  background: linear-gradient(135deg, #2d6a4f 60%, #e76f51 60%);
-  border: 1px solid #1b4332;
+  background: linear-gradient(135deg, #1b5e3f 60%, #c44127 60%);
+  border: 1px solid #0b2e1e;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-backdrop,
+  .liquid-modal-panel,
+  .liquid-panel-enter,
+  .liquid-stage-enter,
+  .liquid-stage-exit,
+  .liquid-ring-enter,
+  .liquid-task-enter,
+  .liquid-toast-enter {
+    animation: none;
+  }
+
+  .liquid-pill,
+  .liquid-accordion,
+  .task-mobile-accordion,
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @layer base {
@@ -286,11 +634,13 @@
     color: var(--text-body);
     font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
   }
 
   button:focus-visible,
   input:focus-visible,
-  select:focus-visible {
+  select:focus-visible,
+  textarea:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }

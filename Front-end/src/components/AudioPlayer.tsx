@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { AudioTrack, PhaseType, VolumePolicy } from '../domain/types';
 
 interface AudioPlayerProps {
@@ -11,6 +12,7 @@ interface AudioPlayerProps {
   volumePolicy: VolumePolicy;
   activePhaseType: PhaseType | null;
   audioError: string | null;
+  embedded?: boolean;
   onSelectTrack: (trackId: string) => void;
   onTogglePlay: () => Promise<void>;
   onToggleMute: () => void;
@@ -23,7 +25,7 @@ const CATEGORY_LABELS: Record<AudioTrack['category'], string> = {
   drone: 'Drone',
 };
 
-export function AudioPlayer({
+export const AudioPlayer = memo(function AudioPlayer({
   tracks,
   selectedTrackId,
   isPlaying,
@@ -34,6 +36,7 @@ export function AudioPlayer({
   volumePolicy,
   activePhaseType,
   audioError,
+  embedded = false,
   onSelectTrack,
   onTogglePlay,
   onToggleMute,
@@ -42,23 +45,21 @@ export function AudioPlayer({
   const effectivePct = Math.round(effectiveTargetVolume * 100);
   const policyPct = Math.round(policyVolume * 100);
 
-  return (
-    <section
-      className="rounded-2xl border border-edge bg-surface p-6 shadow-sm"
-      aria-labelledby="audio-heading"
-    >
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="audio-heading" className="text-base font-bold text-heading">
-          Audio de concentración
-        </h2>
-        <span className="inline-flex items-center rounded-full bg-elevated px-3 py-1 text-xs font-semibold text-ink">
-          Política {activePhaseType && activePhaseType !== 'focus' ? 'Descanso' : 'Enfoque'}:{' '}
-          {policyPct}%
-        </span>
-      </div>
+  const content = (
+    <>
+      {!embedded && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h2 id="audio-heading" className="text-base font-bold text-heading">
+            Sonido ambiental
+          </h2>
+          <span className="liquid-glass-subtle inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-ink">
+            {activePhaseType && activePhaseType !== 'focus' ? 'Descanso' : 'Enfoque'}: {policyPct}%
+          </span>
+        </div>
+      )}
 
       {tracks.length === 0 ? (
-        <p className="text-sm text-muted">Cargando pistas desde el servidor...</p>
+        <p className="text-sm text-muted">Cargando pistas disponibles...</p>
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2" role="radiogroup" aria-label="Pistas disponibles">
@@ -70,10 +71,10 @@ export function AudioPlayer({
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  className={`flex w-full cursor-pointer items-center justify-between rounded-lg border px-3.5 py-2.5 text-left transition ${
+                  className={`flex min-h-11 w-full cursor-pointer items-center justify-between rounded-2xl border px-4 py-2.5 text-left transition ${
                     selected
-                      ? 'border-brand bg-elevated'
-                      : 'border-edge bg-canvas hover:border-brand'
+                      ? 'border-brand bg-brand/15 ring-1 ring-brand/30'
+                      : 'liquid-glass-subtle hover:border-brand'
                   }`}
                   onClick={() => onSelectTrack(track.id)}
                 >
@@ -87,7 +88,7 @@ export function AudioPlayer({
           <div className="flex flex-wrap gap-2.5">
             <button
               type="button"
-              className={`cursor-pointer rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-55 ${
+              className={`min-h-11 flex-1 cursor-pointer rounded-full px-5 py-2.5 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55 ${
                 isPlaying
                   ? 'bg-brand text-brand-ink hover:bg-brand-hover'
                   : 'bg-accent font-bold text-accent-ink hover:bg-accent-hover'
@@ -100,17 +101,17 @@ export function AudioPlayer({
 
             <button
               type="button"
-              className="cursor-pointer rounded-xl border border-edge bg-elevated px-4 py-2.5 text-sm font-semibold text-heading transition hover:border-brand"
+              className="liquid-pill min-h-11 cursor-pointer rounded-full px-5 py-2.5 text-sm font-semibold text-heading"
               onClick={onToggleMute}
             >
               {isMuted ? 'Activar sonido' : 'Silenciar'}
             </button>
           </div>
 
-          <div className="flex flex-col gap-1.5">
+          <div className="liquid-glass-subtle flex flex-col gap-1.5 rounded-2xl p-3.5">
             <div className="flex items-center justify-between text-xs">
               <label htmlFor="local-volume-slider" className="font-semibold text-heading">
-                Ajuste local temporal (sin round-trip)
+                Volumen local
               </label>
               <span className="font-mono text-muted">{effectivePct}% efectivo</span>
             </div>
@@ -125,14 +126,14 @@ export function AudioPlayer({
               className="w-full accent-accent"
             />
             <p className="text-xs text-muted">
-              Política en back-end: Enfoque {Math.round(volumePolicy.focus * 100)}% · Descanso{' '}
+              Volumen automático: Enfoque {Math.round(volumePolicy.focus * 100)}% · Descanso{' '}
               {Math.round(volumePolicy.short_break * 100)}%
             </p>
           </div>
 
           {audioError && (
             <p
-              className="rounded-xl border border-danger bg-danger-bg px-3.5 py-2 text-xs font-medium text-danger"
+              className="rounded-2xl border border-danger bg-danger-bg px-3.5 py-2 text-xs font-medium text-danger"
               role="alert"
             >
               {audioError}
@@ -140,6 +141,19 @@ export function AudioPlayer({
           )}
         </div>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div aria-label="Sonido ambiental">{content}</div>;
+  }
+
+  return (
+    <section
+      className="liquid-glass rounded-3xl p-6"
+      aria-labelledby="audio-heading"
+    >
+      {content}
     </section>
   );
-}
+});

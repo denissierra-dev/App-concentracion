@@ -29,7 +29,7 @@ const SECURITY_HEADERS = {
 } as const;
 
 function resolveProxyTarget(rawTarget: string | undefined): string {
-  const candidate = rawTarget?.trim() || 'http://localhost:3001';
+  const candidate = rawTarget?.trim() || 'http://127.0.0.1:3001';
   const parsed = new URL(candidate);
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`Invalid API proxy protocol: ${parsed.protocol}`);
@@ -55,6 +55,7 @@ function strictProductionCspPlugin(): Plugin {
 export default defineConfig({
   plugins: [tailwindcss(), react(), strictProductionCspPlugin()],
   server: {
+    host: true,
     port: 5173,
     strictPort: true,
     headers: {
@@ -68,6 +69,7 @@ export default defineConfig({
     },
   },
   preview: {
+    host: true,
     port: 4173,
     strictPort: true,
     headers: {

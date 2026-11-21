@@ -174,6 +174,16 @@ describe('Fase 5: Sistema de Tareas (To-Do List)', () => {
       .send({ eventId: deleteEventId });
     expect(d2.status).toBe(200);
     expect(d2.body.idempotent).toBe(true);
+
+    // Retrying POST /api/v1/tasks with the original createEventId after deletion must NOT resurrect the task
+    const retryCreateAfterDelete = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({ id: taskId, title: 'Tarea idempotente', eventId: createEventId });
+    expect(retryCreateAfterDelete.status).toBe(200);
+    expect(retryCreateAfterDelete.body.created).toBe(false);
+    expect(retryCreateAfterDelete.body.task).toBeNull();
+    expect(retryCreateAfterDelete.body.counts.total).toBe(0);
   });
 
   it('enqueues non-blocking Phase 6.5A priority recalculation on create, dueAt edit, complete, and reopen', async () => {
@@ -548,5 +558,52 @@ describe('Fase 5: Sistema de Tareas (To-Do List)', () => {
       .set('x-device-id', deviceId)
       .send({ userPriority: 'LOW' });
     expect(lowered.body.task.effectivePriority).toBe('MEDIUM');
+  });
+
+  it('computes priority inline in POST/PATCH responses without extra SQLite round-trips and caches filtered queries', async () => {
+    const app = createApp({ db });
+    const now = Date.now();
+
+    const createRes = await request(app)
+      .post('/api/v1/tasks')
+      .set('x-device-id', deviceId)
+      .send({
+        title: 'Inline priority',
+        userPriority: 'LOW',
+        dueAt: now + 2 * 3_600_000,
+      });
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.task.aiPriority).toBe('CRITICAL');
+    expect(createRes.body.task.effectivePriority).toBe('CRITICAL');
+    expect(createRes.body.task.priorityScore).toBeGreaterThanOrEqual(90);
+    expect(createRes.body.task.priorityReason).toEqual(expect.any(String));
+    expect(createRes.body.task.priorityComputedAt).toEqual(expect.any(Number));
+
+    const patchRes = await request(app)
+      .patch(`/api/v1/tasks/${createRes.body.task.id}`)
+      .set('x-device-id', deviceId)
+      .send({ dueAt: now + 48 * 3_600_000 });
+
+    expect(patchRes.status).toBe(200);
+    expect(patchRes.body.task.aiPriority).toBe('MEDIUM');
+    expect(patchRes.body.task.effectivePriority).toBe('MEDIUM');
+    expect(patchRes.body.task.priorityScore).toBeGreaterThanOrEqual(40);
+
+    // Verify filtered query statements are cached and not recompiled on repeat calls
+    const prepareSpy = vi.spyOn(db, 'prepare');
+
+    await request(app)
+      .get('/api/v1/tasks?status=pending&priority=MEDIUM&sortBy=dueAt')
+      .set('x-device-id', deviceId);
+    const preparesAfterFirst = prepareSpy.mock.calls.length;
+    expect(preparesAfterFirst).toBe(1);
+
+    await request(app)
+      .get('/api/v1/tasks?status=pending&priority=MEDIUM&sortBy=dueAt')
+      .set('x-device-id', deviceId);
+    expect(prepareSpy.mock.calls.length).toBe(preparesAfterFirst);
+
+    prepareSpy.mockRestore();
   });
 });

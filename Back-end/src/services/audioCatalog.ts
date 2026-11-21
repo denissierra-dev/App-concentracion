@@ -49,26 +49,85 @@ const CURATED_TRACKS: readonly AudioTrackDefinition[] = [
   },
 ];
 
-function safeResolveInDir(baseDir: string, filename: string): string | null {
-  const resolvedBase = path.resolve(baseDir);
-  const resolvedTarget = path.resolve(resolvedBase, filename);
-  if (!resolvedTarget.startsWith(resolvedBase + path.sep)) {
+function resolveTrackFromDisk(
+  resolvedBase: string,
+  def: AudioTrackDefinition
+): ResolvedAudioTrack | null {
+  try {
+    const candidate = path.resolve(resolvedBase, def.filename);
+    if (!candidate.startsWith(resolvedBase + path.sep)) {
+      return null;
+    }
+    const realTarget = fs.realpathSync(candidate);
+    if (!realTarget.startsWith(resolvedBase + path.sep)) {
+      return null;
+    }
+    const stat = fs.statSync(realTarget);
+    if (!stat.isFile()) {
+      return null;
+    }
+
+    return {
+      filePath: realTarget,
+      track: {
+        id: def.id,
+        title: def.title,
+        category: def.category,
+        mimeType: def.mimeType,
+        sizeBytes: stat.size,
+        streamUrl: `/api/v1/audio/tracks/${def.id}/stream`,
+      },
+    };
+  } catch {
     return null;
   }
-  return resolvedTarget;
 }
 
-export function listAudioTracks(audioDir: string): AudioTrackMetadata[] {
-  const tracks: AudioTrackMetadata[] = [];
+interface CachedAudioCatalog {
+  tracks: AudioTrackMetadata[];
+  byId: Map<string, ResolvedAudioTrack>;
+}
 
-  for (const def of CURATED_TRACKS) {
-    const resolved = resolveAudioTrack(audioDir, def.id);
-    if (resolved) {
-      tracks.push(resolved.track);
+const audioCatalogCache = new Map<string, CachedAudioCatalog>();
+
+function getOrLoadCatalog(audioDir: string): CachedAudioCatalog {
+  const cacheKey = path.resolve(audioDir);
+  const cached = audioCatalogCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const tracks: AudioTrackMetadata[] = [];
+  const byId = new Map<string, ResolvedAudioTrack>();
+
+  let resolvedBase: string | null = null;
+  try {
+    resolvedBase = fs.realpathSync(cacheKey);
+  } catch {
+    resolvedBase = null;
+  }
+
+  if (resolvedBase) {
+    for (const def of CURATED_TRACKS) {
+      const resolved = resolveTrackFromDisk(resolvedBase, def);
+      if (resolved) {
+        tracks.push(resolved.track);
+        byId.set(def.id, resolved);
+      }
     }
   }
 
-  return tracks;
+  const entry: CachedAudioCatalog = { tracks, byId };
+  audioCatalogCache.set(cacheKey, entry);
+  return entry;
+}
+
+export function clearAudioCatalogCache(): void {
+  audioCatalogCache.clear();
+}
+
+export function listAudioTracks(audioDir: string): AudioTrackMetadata[] {
+  return getOrLoadCatalog(audioDir).tracks;
 }
 
 export function resolveAudioTrack(audioDir: string, trackId: string): ResolvedAudioTrack | null {
@@ -76,36 +135,5 @@ export function resolveAudioTrack(audioDir: string, trackId: string): ResolvedAu
     return null;
   }
 
-  const def = CURATED_TRACKS.find((item) => item.id === trackId);
-  if (!def) {
-    return null;
-  }
-
-  const filePath = safeResolveInDir(audioDir, def.filename);
-  if (!filePath) {
-    return null;
-  }
-
-  let stat: fs.Stats;
-  try {
-    stat = fs.statSync(filePath);
-  } catch {
-    return null;
-  }
-
-  if (!stat.isFile()) {
-    return null;
-  }
-
-  return {
-    filePath,
-    track: {
-      id: def.id,
-      title: def.title,
-      category: def.category,
-      mimeType: def.mimeType,
-      sizeBytes: stat.size,
-      streamUrl: `/api/v1/audio/tracks/${def.id}/stream`,
-    },
-  };
+  return getOrLoadCatalog(audioDir).byId.get(trackId) ?? null;
 }

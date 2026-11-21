@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiClient, ApiClientError } from '../src/api/client';
+import { startGoogleOAuthRedirect } from '../src/security/pkce';
 import { safeStorage } from '../src/security/safeStorage';
 import {
   assertNoInjectionChars,
@@ -7,16 +8,24 @@ import {
   assertSafeAudioStreamUrl,
   assertSafeExternalHttpUrl,
   audioTracksResponseSchema,
+  authTokenSchema,
   createSessionInputSchema,
   createTaskInputSchema,
+  googleAuthInputSchema,
+  loginInputSchema,
+  preferenceSchema,
+  publicUserSchema,
+  registerInputSchema,
   safeJsonParse,
   safePathSegment,
   sanitizePlainText,
   searchQueryInputSchema,
   searchResponseSchema,
   SecurityValidationError,
+  statsDashboardResponseSchema,
   taskQuerySchema,
   taskTagsArraySchema,
+  updatePreferencesInputSchema,
   updateTaskInputSchema,
   uuidSchema,
 } from '../src/security/validators';
@@ -257,26 +266,37 @@ describe('Front-end Strict Security & Anti-Injection Layer', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('closes IndexedDB connection only after transaction completes (never prematurely)', async () => {
+  it('reuses singleton IndexedDB connection across operations without closing per transaction', async () => {
     const devA = '11111111-1111-4111-8111-111111111111';
     const devB = '22222222-2222-4222-8222-222222222222';
     const closeSpy = vi.fn();
-    let txCompleteHandler: (() => void) | null = null;
+    let storedRaw: string | null = null;
 
     const fakeDb = {
       objectStoreNames: { contains: () => true },
       close: closeSpy,
+      onversionchange: null as (() => void) | null,
+      onclose: null as (() => void) | null,
       transaction: () => {
         const tx = {
           oncomplete: null as (() => void) | null,
           onerror: null as (() => void) | null,
           onabort: null as (() => void) | null,
           objectStore: () => ({
-            put: () => {
+            put: (value: string) => {
+              storedRaw = value;
+              setTimeout(() => tx.oncomplete?.(), 0);
+            },
+            get: () => {
+              const req = {
+                result: storedRaw,
+                onsuccess: null as (() => void) | null,
+              };
               setTimeout(() => {
-                txCompleteHandler = tx.oncomplete;
+                req.onsuccess?.();
                 tx.oncomplete?.();
               }, 0);
+              return req;
             },
           }),
         };
@@ -284,25 +304,27 @@ describe('Front-end Strict Security & Anti-Injection Layer', () => {
       },
     };
 
+    const openSpy = vi.fn(() => {
+      const req = {
+        result: fakeDb,
+        onupgradeneeded: null as (() => void) | null,
+        onsuccess: null as (() => void) | null,
+        onerror: null as (() => void) | null,
+        onblocked: null as (() => void) | null,
+      };
+      setTimeout(() => req.onsuccess?.(), 0);
+      return req;
+    });
+
     const originalIdb = window.indexedDB;
+    await syncStore.closeConnection();
     Object.defineProperty(window, 'indexedDB', {
       configurable: true,
-      value: {
-        open: () => {
-          const req = {
-            result: fakeDb,
-            onupgradeneeded: null as (() => void) | null,
-            onsuccess: null as (() => void) | null,
-            onerror: null as (() => void) | null,
-          };
-          setTimeout(() => req.onsuccess?.(), 0);
-          return req;
-        },
-      },
+      value: { open: openSpy },
     });
 
     try {
-      const savePromise = syncStore.saveQueue(devA, [
+      await syncStore.saveQueue(devA, [
         {
           eventId: devB,
           entityType: 'task',
@@ -311,16 +333,19 @@ describe('Front-end Strict Security & Anti-Injection Layer', () => {
           payload: {},
         },
       ]);
-
-      // Flush microtasks before setTimeout(0) for tx.oncomplete fires
-      await Promise.resolve();
-      await Promise.resolve();
+      const loaded = await syncStore.loadQueue(devA);
+      expect(loaded).toHaveLength(1);
+      expect(openSpy).toHaveBeenCalledTimes(1);
       expect(closeSpy).not.toHaveBeenCalled();
 
-      await savePromise;
-      expect(txCompleteHandler).not.toBeNull();
+      // Version change closes and resets singleton so next operation re-opens
+      fakeDb.onversionchange?.();
       expect(closeSpy).toHaveBeenCalledTimes(1);
+
+      await syncStore.loadQueue(devA);
+      expect(openSpy).toHaveBeenCalledTimes(2);
     } finally {
+      await syncStore.closeConnection();
       Object.defineProperty(window, 'indexedDB', {
         configurable: true,
         value: originalIdb,
@@ -434,5 +459,223 @@ describe('Front-end Strict Security & Anti-Injection Layer', () => {
     ).rejects.toMatchObject({
       code: 'INVALID_RESPONSE_SCHEMA',
     });
+  });
+
+  it('rejects and purges queued offline sync events with bloated payloads', async () => {
+    const devA = '11111111-1111-4111-8111-111111111111';
+    const eventId = '22222222-2222-4222-8222-222222222222';
+    const bloatedPayload = Object.fromEntries(
+      Array.from({ length: 25 }, (_, idx) => [`k${idx}`, 'val'])
+    );
+
+    window.localStorage.setItem(
+      `deepwork:idb:queue:${devA}`,
+      JSON.stringify([
+        {
+          eventId,
+          entityType: 'task',
+          entityId: eventId,
+          eventType: 'TASK_DELETED',
+          payload: bloatedPayload,
+        },
+      ])
+    );
+
+    expect(await syncStore.loadQueue(devA)).toEqual([]);
+    expect(window.localStorage.getItem(`deepwork:idb:queue:${devA}`)).toBeNull();
+  });
+
+  it('validates auth inputs, rejects CRLF/XSS tokens & javascript: avatarUrl, and scopes token storage by rememberMe', () => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+
+    expect(
+      loginInputSchema.safeParse({
+        identifier: '<script>alert(1)</script>',
+        password: 'ValidPassword123',
+      }).success
+    ).toBe(false);
+
+    expect(
+      registerInputSchema.safeParse({
+        username: 'ab',
+        password: '123',
+      }).success
+    ).toBe(false);
+
+    expect(
+      registerInputSchema.safeParse({
+        username: 'denis_focus',
+        password: 'StrongPassword123',
+        email: 'denis@example.com',
+        displayName: 'Denis',
+        rememberMe: true,
+      }).success
+    ).toBe(true);
+
+    expect(authTokenSchema.safeParse('tok\r\nX-Inject: 1').success).toBe(false);
+    expect(authTokenSchema.safeParse('valid_token_abc_123').success).toBe(true);
+
+    expect(
+      publicUserSchema.safeParse({
+        id: '11111111-1111-4111-8111-111111111111',
+        authProvider: 'google',
+        username: 'denis',
+        email: 'denis@example.com',
+        displayName: 'Denis',
+        avatarUrl: 'javascript:alert(1)',
+        hasPassword: false,
+        hasGoogleLinked: true,
+        createdAt: 1700000000000,
+      }).success
+    ).toBe(false);
+
+    expect(
+      publicUserSchema.safeParse({
+        id: '11111111-1111-4111-8111-111111111111',
+        authProvider: 'google',
+        username: 'denis',
+        email: 'denis@example.com',
+        displayName: 'Denis',
+        avatarUrl: 'https://lh3.googleusercontent.com/a/avatar',
+        hasPassword: false,
+        hasGoogleLinked: true,
+        createdAt: 1700000000000,
+      }).success
+    ).toBe(true);
+
+    expect(taskQuerySchema.parse({ priority: 'CRITICAL' }).priority).toBe('CRITICAL');
+    expect(
+      statsDashboardResponseSchema.safeParse({
+        today: {
+          date: '2026-11-20',
+          sessionsCompleted: 1,
+          focusMs: 1500000,
+          focusMinutes: 25,
+          tasksCompleted: 1,
+        },
+        totals: {
+          sessionsCompleted: 1,
+          focusMs: 1500000,
+          focusMinutes: 25,
+          cyclesCompleted: 1,
+          tasksCompleted: 1,
+          tasksPending: 0,
+        },
+        streaks: { currentDays: 1, longestDays: 1, lastActiveDate: '2026-11-20' },
+        primordial: { completedBeforeDeadline: 0, ignored: 0, activePending: 0, completionRate: null },
+        productivity: {
+          windowDays: 30,
+          byDay: [],
+          byWeekday: [],
+          byHour: [],
+          peakHour: null,
+        },
+        serverTimeMs: 1700000000000,
+      }).success
+    ).toBe(true);
+
+    // Session-only token (rememberMe = false -> sessionStorage only)
+    expect(safeStorage.setAuthToken('ephemeral_token_value', false)).toBe(true);
+    expect(safeStorage.getAuthToken()).toBe('ephemeral_token_value');
+    expect(window.sessionStorage.length).toBeGreaterThan(0);
+
+    // Persistent token (rememberMe = true -> localStorage)
+    expect(safeStorage.setAuthToken('persistent_token_value', true)).toBe(true);
+    expect(safeStorage.getAuthToken()).toBe('persistent_token_value');
+    safeStorage.clearAuthToken();
+    expect(safeStorage.getAuthToken()).toBeNull();
+
+    // PKCE state validation & purge on tampering (RFC 7636 requires >=43 chars codeVerifier)
+    expect(
+      safeStorage.setGooglePkce({
+        state: 'state_token_123456',
+        codeVerifier: 'too_short',
+        mode: 'login',
+        rememberMe: true,
+      })
+    ).toBe(false);
+    expect(
+      safeStorage.setGooglePkce({
+        state: 'state_token_123456',
+        codeVerifier: 'verifier_value_abcdef1234567890_ghijklmnopqrstuvwxyz',
+        mode: 'login',
+        rememberMe: true,
+      })
+    ).toBe(true);
+    expect(safeStorage.getGooglePkce()?.state).toBe('state_token_123456');
+    safeStorage.clearGooglePkce();
+    expect(safeStorage.getGooglePkce()).toBeNull();
+  });
+
+  it('validates Google OAuth inputs, rejects unsafe export content-types, and blocks invalid OAuth clientId', async () => {
+    expect(
+      googleAuthInputSchema.safeParse({
+        code: 'valid_code_1234',
+        redirectUri: 'javascript:alert(1)',
+      }).success
+    ).toBe(false);
+
+    expect(
+      googleAuthInputSchema.safeParse({
+        idToken: 'header.payload\r\n.sig',
+      }).success
+    ).toBe(false);
+
+    await expect(
+      startGoogleOAuthRedirect({
+        clientId: 'bad client id\r\n',
+        mode: 'login',
+        rememberMe: true,
+      })
+    ).rejects.toThrow(SecurityValidationError);
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('<html><body>evil</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      })
+    );
+
+    await expect(
+      apiClient.exportStats('11111111-1111-4111-8111-111111111111', { format: 'csv', days: 7 })
+    ).rejects.toMatchObject({
+      code: 'UNEXPECTED_CONTENT_TYPE',
+    });
+
+    // Contract update: longBreakMin accepts 5..120 and rejects >120
+    expect(updatePreferencesInputSchema.safeParse({ longBreakMin: 120 }).success).toBe(true);
+    expect(updatePreferencesInputSchema.safeParse({ longBreakMin: 121 }).success).toBe(false);
+    expect(
+      preferenceSchema.safeParse({
+        userId: '11111111-1111-4111-8111-111111111111',
+        focusDurationMin: 25,
+        shortBreakMin: 45,
+        longBreakMin: 90,
+        cyclesBeforeLongBreak: 4,
+        volumeFocus: 0.7,
+        volumeBreak: 0.3,
+        notificationsEnabled: true,
+        theme: 'system',
+        updatedAt: 1700000000000,
+      }).success
+    ).toBe(true);
+  });
+
+  it('generates valid v4 UUIDs via getRandomValues fallback on non-HTTPS LAN origins', async () => {
+    const { generateUuid } = await import('../src/api/client');
+    const originalCrypto = globalThis.crypto;
+    vi.stubGlobal('crypto', {
+      getRandomValues: (arr: Uint8Array) => originalCrypto.getRandomValues(arr),
+    });
+
+    try {
+      const uuid = generateUuid();
+      expect(uuid).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

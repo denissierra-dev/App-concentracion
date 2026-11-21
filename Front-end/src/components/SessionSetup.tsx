@@ -1,9 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { memo, useEffect, useState, type FormEvent } from 'react';
 import { previewBreakRules } from '../domain/sessionClock';
 import { createSessionInputSchema, SESSION_LIMITS } from '../security/validators';
 
 interface SessionSetupProps {
   defaultFocusMin: number;
+  defaultShortBreakMin?: number;
+  defaultLongBreakMin?: number;
   defaultCycles: number;
   cyclesBeforeLongBreak: number;
   isSubmitting: boolean;
@@ -12,8 +14,10 @@ interface SessionSetupProps {
 
 const PRESET_MINUTES = [20, 25, 30, 60] as const;
 
-export function SessionSetup({
+export const SessionSetup = memo(function SessionSetup({
   defaultFocusMin,
+  defaultShortBreakMin,
+  defaultLongBreakMin,
   defaultCycles,
   cyclesBeforeLongBreak,
   isSubmitting,
@@ -39,7 +43,12 @@ export function SessionSetup({
       ? parsedFocus
       : defaultFocusMin;
 
-  const breakPreview = previewBreakRules(previewFocus, cyclesBeforeLongBreak);
+  const breakPreview = previewBreakRules(
+    previewFocus,
+    cyclesBeforeLongBreak,
+    defaultShortBreakMin,
+    defaultLongBreakMin
+  );
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -61,34 +70,38 @@ export function SessionSetup({
 
   return (
     <section
-      className="rounded-2xl border border-edge bg-surface p-6 shadow-sm"
+      className={`liquid-glass liquid-stage-enter rounded-3xl p-6 transition-[opacity,transform] duration-500 ease-out sm:p-8 ${
+        isSubmitting ? 'scale-[0.992] opacity-85' : ''
+      }`}
       aria-labelledby="setup-heading"
     >
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h2 id="setup-heading" className="text-lg font-bold text-heading">
-          Nueva sesión de concentración
-        </h2>
-        <span className="inline-flex items-center rounded-full bg-elevated px-3 py-1 text-xs font-semibold text-ink">
-          Plan precomputado en servidor
-        </span>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 id="setup-heading" className="text-xl font-bold tracking-tight text-heading">
+            Nueva sesión de concentración
+          </h2>
+          <p className="mt-0.5 text-xs text-muted">
+            Elige tu ritmo de enfoque y comienza sin distracciones
+          </p>
+        </div>
       </div>
 
       <form className="flex flex-col gap-5" onSubmit={handleSubmit} noValidate>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2.5">
           <span className="text-sm font-semibold text-heading">
             Duración de enfoque (minutos)
           </span>
-          <div className="grid grid-cols-4 gap-2" role="group" aria-label="Duraciones rápidas">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Duraciones rápidas">
             {PRESET_MINUTES.map((min) => {
               const active = Number(focusInput) === min;
               return (
                 <button
                   key={min}
                   type="button"
-                  className={`cursor-pointer rounded-lg border px-2 py-2 text-sm font-semibold transition ${
+                  className={`min-h-11 cursor-pointer rounded-2xl border px-3 py-2 text-sm font-semibold transition active:scale-[0.98] ${
                     active
-                      ? 'border-brand bg-brand text-brand-ink'
-                      : 'border-edge bg-canvas text-heading hover:border-brand'
+                      ? 'border-brand bg-brand text-brand-ink shadow-sm'
+                      : 'liquid-glass-subtle text-heading hover:border-brand'
                   }`}
                   onClick={() => {
                     setFocusInput(String(min));
@@ -117,7 +130,7 @@ export function SessionSetup({
                 setFocusInput(e.target.value);
                 setValidationError(null);
               }}
-              className="w-36 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-heading"
+              className="liquid-glass-subtle w-36 rounded-xl px-3.5 py-2.5 text-sm font-medium text-heading"
               placeholder="Ej. 45"
             />
             <span className="text-xs text-muted">
@@ -134,7 +147,7 @@ export function SessionSetup({
             <button
               type="button"
               aria-label="Disminuir ciclos"
-              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-edge bg-canvas text-base font-bold text-heading transition hover:border-brand disabled:cursor-not-allowed disabled:opacity-45"
+              className="liquid-pill flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl text-base font-bold text-heading disabled:cursor-not-allowed disabled:opacity-45"
               disabled={Number(cyclesInput) <= SESSION_LIMITS.MIN_CYCLES}
               onClick={() => {
                 const current = Number.isInteger(Number(cyclesInput))
@@ -159,12 +172,12 @@ export function SessionSetup({
                 setCyclesInput(e.target.value);
                 setValidationError(null);
               }}
-              className="w-24 rounded-lg border border-edge bg-canvas px-3 py-2 text-center text-sm font-semibold text-heading"
+              className="liquid-glass-subtle h-11 w-24 rounded-xl px-3 py-2 text-center text-sm font-semibold text-heading"
             />
             <button
               type="button"
               aria-label="Aumentar ciclos"
-              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-edge bg-canvas text-base font-bold text-heading transition hover:border-brand disabled:cursor-not-allowed disabled:opacity-45"
+              className="liquid-pill flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl text-base font-bold text-heading disabled:cursor-not-allowed disabled:opacity-45"
               disabled={Number(cyclesInput) >= SESSION_LIMITS.MAX_CYCLES}
               onClick={() => {
                 const current = Number.isInteger(Number(cyclesInput))
@@ -180,16 +193,16 @@ export function SessionSetup({
           </div>
         </div>
 
-        <div className="rounded-xl border border-edge bg-canvas p-4" aria-live="polite">
-          <p className="mb-1.5 text-xs font-semibold text-heading">
-            Reglas de descanso que aplicará el back-end:
-          </p>
+        <div className="liquid-glass-subtle rounded-2xl p-4" aria-live="polite">
+          <p className="mb-1.5 text-xs font-semibold text-heading">Resumen de descansos:</p>
           <ul className="list-disc space-y-1 pl-5 text-xs text-muted">
             <li>
               Descanso corto: <strong className="text-ink">{breakPreview.shortBreakMin} min</strong>{' '}
-              {previewFocus > SESSION_LIMITS.EXTENDED_FOCUS_THRESHOLD_MIN
-                ? '(enfoque > 40 min)'
-                : '(enfoque ≤ 40 min)'}
+              {breakPreview.isCustomShortBreak
+                ? '(preferencia personalizada)'
+                : previewFocus > SESSION_LIMITS.EXTENDED_FOCUS_THRESHOLD_MIN
+                  ? '(enfoque > 40 min)'
+                  : '(enfoque ≤ 40 min)'}
             </li>
             <li>
               Descanso largo: <strong className="text-ink">{breakPreview.longBreakMin} min</strong>{' '}
@@ -200,7 +213,7 @@ export function SessionSetup({
 
         {validationError && (
           <p
-            className="rounded-xl border border-danger bg-danger-bg px-4 py-2.5 text-sm font-medium text-danger"
+            className="rounded-2xl border border-danger bg-danger-bg px-4 py-2.5 text-sm font-medium text-danger"
             role="alert"
           >
             {validationError}
@@ -209,12 +222,12 @@ export function SessionSetup({
 
         <button
           type="submit"
-          className="cursor-pointer rounded-xl bg-accent px-5 py-3 text-base font-bold text-accent-ink transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-55"
+          className="min-h-12 cursor-pointer rounded-full bg-accent px-6 py-3 text-base font-bold text-accent-ink shadow-sm transition hover:bg-accent-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55"
           disabled={isSubmitting}
         >
-          {isSubmitting ? 'Generando plan...' : 'Iniciar sesión'}
+          {isSubmitting ? 'Iniciando...' : 'Iniciar sesión'}
         </button>
       </form>
     </section>
   );
-}
+});
